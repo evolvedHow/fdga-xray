@@ -1,0 +1,58 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The published site fetches public/data/story.json at runtime. That file
+      # is generated offline from the FDP data platform and committed here, so
+      # CI never needs the parquet sources or a database.
+      - name: Check the data bundle is committed
+        run: |
+          if [ ! -s public/data/story.json ]; then
+            echo "public/data/story.json is missing or empty."
+            echo "Regenerate it with scripts/export_story_data.py and commit the result."
+            exit 1
+          fi
+          printf 'story.json: %s bytes\n' "$(wc -c < public/data/story.json)"
+
+      - name: Build
+        run: npm run build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
