@@ -11,3 +11,4 @@ node_modules/
 
 # The committed data bundle at public/data/story.json is intentional:
 # it is what makes the published site self-sufficient. Do not ignore it.
+dist/
