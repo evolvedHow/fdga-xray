@@ -69,7 +69,7 @@ export default function Statewide({ statewide, chamberRow, chamberLabel, year, o
               : '—'}
           </span>
         </div>
-        <div className={`kpi ${gap != null && Math.abs(gap) >= 0.02 ? 'is-alert' : ''}`}>
+        <div className={`kpi ${gap != null && Math.abs(gap) >= 0.02 ? 'is-flag' : ''}`}>
           <span className="kpi-label">Seats-minus-votes gap</span>
           <strong>{gap == null ? '—' : fmtPts(gap)}</strong>
           <span className="kpi-sub">

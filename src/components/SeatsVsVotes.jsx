@@ -72,7 +72,7 @@ export default function SeatsVsVotes({ rows, year, chamberLabel }) {
             </div>
           </div>
         </div>
-        <p className={`gap-callout ${Math.abs(gap) >= 0.02 ? 'is-alert' : ''}`}>
+        <p className={`gap-callout ${Math.abs(gap) >= 0.02 ? 'is-flag' : ''}`}>
           Seat bonus for Republicans: <strong>{fmtPts(gap)}</strong>
           <span>
             {uncontested} uncontested seats · {current.racesCompetitive} races inside 5.5 points
