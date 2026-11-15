@@ -1,0 +1,14 @@
+analytics:
+  ga4_measurement_id: ""   # Override with GA4_MEASUREMENT_ID env var
+  clarity_project_id: ""   # Override with CLARITY_PROJECT_ID env var
+
+map:
+  center: [-83.208092, 32.482618]
+  zoom:
+    desktop: 7.0
+    mobile: 5.5
+  minZoom: 5
+  maxZoom: 13
+  style: "mapbox://styles/mapbox/light-v10"
+  geocoderBbox: [-86.548059, 30.183318, -80.840278, 35.451994]
+  mobileBreakpoint: 785

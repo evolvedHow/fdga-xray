@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Header from './components/Header';
 import Statewide from './components/Statewide';
 import SeatsVsVotes from './components/SeatsVsVotes';
+import CountySwing from './components/CountySwing';
 import MapEffect from './components/MapEffect';
 import Benchmark from './components/Benchmark';
 import CountyMap from './components/CountyMap';
@@ -266,6 +267,7 @@ export default function App() {
         {[
           ['swing', '01', 'The swing'],
           ['seats', '02', 'Votes vs seats'],
+          ['county-swing', '02a', 'County swings'],
           ['mapswap', '03', 'The map swap'],
           ['benchmark', '04', 'The benchmark'],
           ['counties', '05', 'County map'],
@@ -305,6 +307,14 @@ export default function App() {
         />
 
         <SeatsVsVotes rows={chamberRows} year={year} chamberLabel={chamberMeta.label} />
+
+        <CountySwing
+          countyGeoJSON={story.counties}
+          countyVotes={story.county_votes}
+          electionKey={chamberMeta.office}
+          year={year}
+          chamberLabel={chamberMeta.label}
+        />
 
         <MapEffect
           effect={story.map_effect?.[chamberMeta.key]}

@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { useSvgPanZoom } from '../lib/useSvgPanZoom';
 import Section from './Section';
 import FigureTools from './FigureTools';
 import { fmtInt, fmtPct, fmtPts, PARTY } from '../lib/data';
@@ -79,7 +80,7 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
   // ---------------------------------------------------------------- figure 1
   const W = 640;
   const rowH = 3.2;
-  const M = { top: 24, right: 96, bottom: 26, left: 12 };
+  const M = { top: 24, right: 140, bottom: 26, left: 12 };
   const plotW = W - M.left - M.right;
   const H = M.top + districts.length * rowH + M.bottom;
   const domain = [0.2, 0.85];
@@ -106,12 +107,15 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
 
   // ---------------------------------------------------------------- figure 3
   const DW = 640;
-  const DH = 168;
-  const DM = { top: 22, right: 14, bottom: 30, left: 12 };
+  const DH = 200;
+  const DM = { top: 40, right: 14, bottom: 30, left: 12 };
   const dPlotW = DW - DM.left - DM.right;
   const dPlotH = DH - DM.top - DM.bottom;
   const slot = dPlotW / Math.max(1, moved.length);
   const maxMove = Math.max(0.05, ...moved.map((d) => d.displacedPct || 0));
+
+  // Pan/zoom for dumbbell chart
+  const { viewBox: dumbViewBox, svgRef: dumbRef } = useSvgPanZoom(W, H, 1, 10);
 
   return (
     <Section
@@ -217,9 +221,11 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
           The 2024 presidential vote in every district, under the old lines and the new ones
         </figcaption>
         <svg
-          viewBox={`0 0 ${W} ${H}`}
+          viewBox={dumbViewBox}
+          ref={dumbRef}
+          style={{ cursor: 'grab', userSelect: 'none' }}
           role="img"
-          aria-label={`Dumbbell chart: 2024 Democratic share in all ${effect.seats} districts under the 2021-23 lines and the 2024 lines`}
+          aria-label={`Dumbbell chart: 2024 Democratic share in all ${effect.seats} districts under the 2021-23 lines and the 2024 lines. Use mouse wheel to zoom, drag to pan.`}
         >
           <rect
             x={x(BAND[0])}
@@ -270,13 +276,13 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
                 />
                 {big && (
                   <text
-                    x={W - M.right + 6}
+                    x={W - M.right + 8}
                     y={y + 3}
                     className="axis-label is-current"
+                    fontSize="9.5"
                     fill={up ? PARTY.D : PARTY.R}
                   >
-                    {dc} {d.district} {pts(d.shiftPts)}
-                    {flip ? ' ↕' : ''}
+                    {dc} {d.district}
                   </text>
                 )}
               </g>
@@ -449,17 +455,40 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
             y2={DM.top + dPlotH}
             className="axis-line"
           />
-          {worst.slice(0, 4).map((d, i) => (
-            <text
-              key={`lbl-${d.district}`}
-              x={DM.left + i * slot + slot / 2}
-              y={DM.top + dPlotH - (d.displacedPct / maxMove) * dPlotH - 3}
-              textAnchor="middle"
-              className="bar-value"
-            >
-              {d.district}
-            </text>
-          ))}
+          {worst.slice(0, 6).map((d, i) => {
+            const barIdx = moved.indexOf(d);
+            const barX = DM.left + barIdx * slot + slot / 2;
+            const barTopY = DM.top + dPlotH - (d.displacedPct / maxMove) * dPlotH;
+            // Alternate label position: above and below to avoid overlap
+            const isAbove = i % 2 === 0;
+            const labelY = isAbove ? barTopY - 14 : barTopY + 12;
+            return (
+              <g key={`lbl-${d.district}`}>
+                {isAbove && (
+                  <line
+                    x1={barX}
+                    x2={barX}
+                    y1={barTopY}
+                    y2={barTopY - 10}
+                    stroke="#d7d3e3"
+                    strokeWidth="0.5"
+                    opacity="0.6"
+                  />
+                )}
+                <text
+                  x={barX}
+                  y={labelY}
+                  textAnchor="middle"
+                  className="axis-label"
+                  fontSize="9"
+                  fontWeight="600"
+                  fill="#4c4863"
+                >
+                  {d.district}
+                </text>
+              </g>
+            );
+          })}
           <text x={DW - DM.right} y={DH - 10} textAnchor="end" className="axis-label">
             {moved.length} districts · dark bar above 30% moved
           </text>

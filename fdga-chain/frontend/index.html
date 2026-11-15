@@ -1,0 +1,2093 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Georgia Redistricting Ensemble Analysis — Fair Districts GA</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.css" rel="stylesheet"/>
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.js"></script>
+<style>
+:root {
+  --blue:  #1a4b8c; --red: #c0392b; --green: #27ae60; --amber: #d68910; --gray: #555;
+  --light: #f5f7fa; --border: #dde3ec; --card: #fff; --shadow: 0 2px 8px rgba(0,0,0,.08);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--light);color:#222;overflow-x:hidden}
+
+/* Header */
+header{background:var(--blue);color:#fff;padding:1rem 2rem;display:flex;justify-content:space-between;align-items:center}
+header h1{font-size:1.3rem;font-weight:700}
+header p{font-size:.82rem;opacity:.8;margin-top:.15rem}
+
+/* Nav */
+.nav-bar{background:#fff;border-bottom:2px solid var(--border);padding:0 2rem;display:flex;gap:0;align-items:center;flex-wrap:wrap}
+.nav-label{font-size:.72rem;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-right:.6rem;white-space:nowrap}
+.nav-tabs{display:flex;gap:0}
+.nav-tab{padding:.65rem 1rem;font-weight:600;font-size:.85rem;cursor:pointer;border-bottom:3px solid transparent;color:var(--gray);white-space:nowrap;transition:all .15s;user-select:none}
+.nav-tab:hover:not(.disabled){color:var(--blue);background:#f0f4fb}
+.nav-tab.active{color:var(--blue);border-bottom-color:var(--blue)}
+.nav-tab.disabled{opacity:.4;cursor:not-allowed}
+.nav-sep{width:1px;background:var(--border);margin:.3rem .6rem;align-self:stretch}
+
+main{max-width:100%;margin:1rem auto;padding:0 .8rem;overflow-x:hidden}
+@media(min-width:1300px){main{max-width:1280px;margin:1rem auto}}
+
+/* Verdict */
+.verdict{border-radius:8px;padding:.7rem 1rem;margin-bottom:.8rem;display:flex;align-items:center;gap:.7rem;box-shadow:var(--shadow)}
+.verdict.outlier {background:#fef0f0;border:1.5px solid #f5a9a9}
+.verdict.moderate{background:#fefae0;border:1.5px solid #f0d070}
+.verdict.normal  {background:#eefaf3;border:1.5px solid #a9dbc0}
+.verdict-icon{font-size:1.4rem;flex-shrink:0}
+.verdict h2{font-size:.92rem;margin-bottom:.1rem}
+.verdict p{font-size:.78rem;color:var(--gray)}
+
+/* ── Metric rows — one per metric, full width ── */
+.metric-strip{display:flex;flex-direction:column;gap:.7rem;margin-bottom:1rem}
+
+.metric-card{
+  background:var(--card);border-radius:8px;border:1.5px solid var(--border);
+  box-shadow:var(--shadow);display:grid;
+  grid-template-columns:210px 230px 1fr;
+  min-width:0;overflow:hidden;
+}
+.metric-card.is-outlier{border-color:#f5a9a9}
+
+/* Left zone: name + numbers */
+.metric-left{padding:.8rem .95rem;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:.4rem}
+/* Middle zone: histogram */
+.metric-mid{padding:.8rem .95rem;border-right:1px solid var(--border);display:flex;flex-direction:column;justify-content:center;gap:.3rem}
+/* Right zone: always-visible explanation */
+.metric-right{padding:.8rem 1.1rem;display:flex;flex-direction:column;gap:.45rem;overflow:hidden}
+
+/* Responsive: stack vertically on narrow screens */
+@media(max-width:860px){
+  .metric-card{grid-template-columns:1fr}
+  .metric-left,.metric-mid{border-right:none;border-bottom:1px solid var(--border)}
+}
+
+.metric-header{display:flex;justify-content:space-between;align-items:flex-start;gap:.3rem}
+.metric-name{font-weight:700;font-size:.82rem;color:var(--blue);line-height:1.2;flex:1}
+.metric-card.is-outlier .metric-name{color:var(--red)}
+
+/* Tiny superscript info — always faintly visible */
+.info-sup{
+  font-size:.62rem;color:var(--blue);cursor:pointer;opacity:.4;
+  transition:opacity .15s;vertical-align:super;margin-left:2px;
+  border:none;background:none;padding:0;line-height:1;
+}
+.info-sup:hover{opacity:1;text-decoration:underline}
+
+.pct-badge{font-size:.7rem;font-weight:700;padding:.15rem .42rem;border-radius:10px;white-space:nowrap;flex-shrink:0}
+.pct-badge.outlier {background:#fde8e8;color:var(--red)}
+.pct-badge.moderate{background:#fef5d0;color:var(--amber)}
+.pct-badge.normal  {background:#e6f7ee;color:var(--green)}
+
+.metric-values{display:grid;grid-template-columns:1fr 1fr;gap:.2rem .5rem}
+.mv-item{display:flex;flex-direction:column;gap:0}
+.mv-label{font-size:.62rem;color:var(--gray)}
+.mv-val{font-weight:700;font-size:.85rem}
+.mv-val.enacted{color:var(--red)}
+.mv-item.full{grid-column:span 2}
+.mv-val.range{font-size:.76rem;font-weight:600}
+
+.chart-wrap{height:100px;position:relative}
+@media(max-width:860px){.chart-wrap{height:70px}}
+
+/* ── Popover (info panel) ── */
+.popover-backdrop{display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.25)}
+.popover-backdrop.open{display:block}
+.popover{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1000;background:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:min(540px,92vw);max-height:85vh;overflow-y:auto}
+.popover-head{background:var(--blue);color:#fff;padding:1rem 1.2rem;border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center}
+.popover-head h3{font-size:1rem;font-weight:700}
+.popover-close{background:none;border:none;color:#fff;font-size:1.3rem;cursor:pointer;line-height:1;padding:.1rem .3rem}
+.popover-body{padding:1.1rem 1.2rem;font-size:.88rem;line-height:1.65;color:#333}
+.popover-body h4{color:var(--blue);margin-top:.9rem;margin-bottom:.3rem;font-size:.88rem;text-transform:uppercase;letter-spacing:.04em}
+.popover-body p{margin-bottom:.5rem}
+.popover-body ul{padding-left:1.1rem}
+.popover-body li{margin-bottom:.3rem}
+.interp-box{background:var(--light);border-left:3px solid var(--blue);padding:.6rem .8rem;border-radius:0 6px 6px 0;margin-top:.5rem;font-size:.83rem}
+
+/* Map */
+.map-layout{display:grid;grid-template-columns:220px 1fr;gap:1rem}
+.map-controls{background:var(--card);border-radius:10px;padding:1rem;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:.7rem}
+.map-controls h3{font-size:.88rem;font-weight:700;color:var(--blue);border-bottom:1px solid var(--border);padding-bottom:.35rem}
+.map-controls label{display:block;font-size:.76rem;font-weight:600;color:var(--gray);margin-bottom:.25rem}
+.map-controls select,.map-controls button{width:100%;font-size:.83rem;padding:.38rem .55rem;border-radius:6px;border:1px solid var(--border)}
+.map-controls button{background:var(--blue);color:#fff;border-color:var(--blue);cursor:pointer;font-weight:600}
+.map-controls button:hover{background:#163e78}
+.map-container{background:var(--card);border-radius:10px;box-shadow:var(--shadow);overflow:hidden;height:540px}
+#leaflet-map{height:100%;width:100%}
+.map-legend{margin-top:.4rem}
+.legend-title{font-size:.73rem;font-weight:700;color:var(--gray);margin-bottom:.25rem}
+.legend-bar{display:flex;height:10px;border-radius:4px;overflow:hidden;margin-bottom:.15rem}
+.legend-labels{display:flex;justify-content:space-between;font-size:.67rem;color:var(--gray)}
+.map-info{font-size:.75rem;color:var(--gray);line-height:1.5;margin-top:.35rem}
+
+/* Run panel */
+.run-panel{background:var(--card);border-radius:10px;padding:1.1rem 1.3rem;box-shadow:var(--shadow);border:1.5px solid var(--border);margin-bottom:1.2rem}
+.run-panel h3{font-size:.92rem;font-weight:700;color:var(--blue);margin-bottom:.8rem}
+.run-form{display:flex;gap:.8rem;align-items:flex-end;flex-wrap:wrap}
+.run-form .field{display:flex;flex-direction:column;gap:.2rem}
+.run-form label{font-size:.75rem;font-weight:600;color:var(--gray)}
+.run-form select,.run-form input{font-size:.85rem;padding:.38rem .55rem;border-radius:6px;border:1px solid var(--border);min-width:130px}
+.run-btn{background:var(--blue);color:#fff;border:none;padding:.45rem 1.1rem;border-radius:6px;font-weight:700;font-size:.85rem;cursor:pointer}
+.run-btn:hover{background:#163e78}
+.run-btn:disabled{opacity:.5;cursor:not-allowed}
+.run-status{font-size:.8rem;padding:.3rem .7rem;border-radius:6px;display:inline-flex;align-items:center;gap:.4rem}
+.run-status.running{background:#e8f0fb;color:var(--blue)}
+.run-status.done   {background:#eefaf3;color:var(--green)}
+.run-status.error  {background:#fef0f0;color:var(--red)}
+
+/* Algo picker */
+.algo-cards{display:flex;gap:.7rem;flex-wrap:wrap;margin-top:.3rem}
+.algo-card{border:2px solid var(--border);border-radius:8px;padding:.6rem .8rem;cursor:pointer;flex:1;min-width:200px;transition:all .15s}
+.algo-card:hover{border-color:var(--blue);background:#f0f4fb}
+.algo-card.selected{border-color:var(--blue);background:#e8f0fb}
+.algo-card-name{font-weight:700;font-size:.85rem;color:var(--blue);margin-bottom:.2rem}
+.algo-card-speed{font-size:.72rem;font-weight:700;padding:.1rem .4rem;border-radius:10px;display:inline-block;margin-bottom:.3rem}
+.algo-card-speed.fast  {background:#e6f7ee;color:var(--green)}
+.algo-card-speed.slower{background:#fef5d0;color:var(--amber)}
+.algo-card-desc{font-size:.78rem;color:var(--gray);line-height:1.5}
+.algo-card-best{font-size:.73rem;color:#444;margin-top:.25rem;font-style:italic}
+
+/* Run history */
+.run-history table{width:100%;border-collapse:collapse;font-size:.8rem}
+.run-history th{text-align:left;font-size:.69rem;font-weight:700;color:var(--gray);text-transform:uppercase;padding:.25rem .55rem;border-bottom:1px solid var(--border)}
+.run-history td{padding:.3rem .55rem;border-bottom:1px solid var(--border)}
+
+/* Sources */
+.sources-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+@media(max-width:700px){.sources-grid{grid-template-columns:1fr}}
+.info-card{background:var(--card);border-radius:10px;padding:1.1rem;box-shadow:var(--shadow)}
+.info-card h3{font-size:.92rem;font-weight:700;color:var(--blue);margin-bottom:.6rem}
+.info-card p,.info-card li{font-size:.83rem;color:#444;line-height:1.6}
+.info-card ul{padding-left:1.1rem}
+.info-card li{margin-bottom:.3rem}
+.info-card a{color:var(--blue)}
+.run-meta-table{width:100%;border-collapse:collapse;font-size:.81rem}
+.run-meta-table tr:not(:last-child) td{border-bottom:1px solid var(--border)}
+.run-meta-table td{padding:.3rem 0}
+.run-meta-table td:first-child{color:var(--gray);width:44%;font-weight:600}
+
+/* Shared */
+.loading{text-align:center;padding:3rem;color:var(--gray)}
+.error{background:#fef0f0;border:1px solid #f5a9a9;border-radius:8px;padding:1rem;color:var(--red);font-size:.85rem}
+.section-title{font-size:.74rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray);margin-bottom:.7rem}
+footer{text-align:center;padding:1.8rem;font-size:.76rem;color:var(--gray)}
+
+/* ── Impact tab ── */
+.impact-header{background:var(--card);border-radius:10px;padding:.6rem 1rem;box-shadow:var(--shadow);margin-bottom:.65rem;display:flex;align-items:baseline;gap:.8rem;flex-wrap:wrap}
+.impact-header h2{font-size:.92rem;font-weight:700;color:var(--blue);margin:0;white-space:nowrap}
+.impact-header p{font-size:.75rem;color:var(--gray);line-height:1.4;margin:0}
+.impact-grid{display:grid;grid-template-columns:1fr 1fr;gap:.65rem;margin-bottom:.65rem}
+.impact-grid-full{grid-column:1/-1}
+.impact-chart-card{background:var(--card);border-radius:10px;box-shadow:var(--shadow);padding:.75rem 1rem}
+.impact-chart-card h3{font-size:.8rem;font-weight:700;color:var(--blue);margin-bottom:.15rem}
+.impact-chart-card .subtitle{font-size:.68rem;color:var(--gray);margin-bottom:.5rem;line-height:1.3}
+.impact-chart-wrap{position:relative}
+.impact-no-data{
+  background:var(--light);border-radius:8px;padding:1.2rem 1.4rem;
+  font-size:.82rem;color:var(--gray);line-height:1.6;border:1px dashed var(--border);
+}
+.impact-no-data code{background:#e8edf4;padding:.1rem .35rem;border-radius:3px;font-size:.78rem}
+
+.impact-eg-zero{
+  position:absolute;top:0;bottom:0;pointer-events:none;
+  border-left:2px dashed #888;opacity:.45;
+}
+.impact-legend{display:flex;gap:1rem;margin-top:.5rem;flex-wrap:wrap}
+.impact-legend-item{display:flex;align-items:center;gap:.35rem;font-size:.72rem;color:var(--gray)}
+.impact-legend-swatch{width:12px;height:12px;border-radius:2px;flex-shrink:0}
+
+/* Seats-votes scatter */
+.sv-canvas-wrap{position:relative}
+.sv-canvas-wrap canvas{display:block}
+
+/* Map tab improvements */
+.map-search-wrap{display:flex;gap:.4rem;margin-bottom:.6rem}
+.map-search-wrap input{
+  flex:1;font-size:.82rem;padding:.36rem .6rem;border-radius:6px;
+  border:1px solid var(--border);outline:none;
+}
+.map-search-wrap input:focus{border-color:var(--blue)}
+.map-search-wrap button{
+  background:var(--blue);color:#fff;border:none;border-radius:6px;
+  padding:.36rem .7rem;font-size:.8rem;cursor:pointer;white-space:nowrap;
+}
+.map-search-wrap button:hover{background:#163e78}
+.map-layer-toggles{display:flex;flex-direction:column;gap:.3rem;margin-bottom:.6rem}
+.map-layer-btn{
+  background:var(--light);border:1.5px solid var(--border);border-radius:6px;
+  padding:.32rem .6rem;font-size:.78rem;font-weight:600;cursor:pointer;
+  color:var(--gray);text-align:left;transition:all .12s;
+}
+.map-layer-btn.active{background:#e8f0fb;border-color:var(--blue);color:var(--blue)}
+.map-layer-btn:hover:not(.active){border-color:#aab}
+
+/* ── History / Timeline view ── */
+/* Controls row: year badge + timeline slider */
+.history-controls{display:flex;gap:.65rem;align-items:start;margin-bottom:.65rem}
+.history-controls .history-year-badge{flex-shrink:0;min-width:220px}
+/* Data strip: summary | cracking | wasted votes table */
+.history-bottom{display:grid;grid-template-columns:1fr 1fr 2fr;gap:.65rem}
+@media(max-width:960px){.history-controls{flex-direction:column}.history-bottom{grid-template-columns:1fr 1fr}}
+
+/* Year display — compact horizontal */
+.history-year-badge{
+  background:var(--blue);color:#fff;border-radius:10px;
+  padding:.5rem .85rem;display:flex;align-items:center;justify-content:space-between;gap:.5rem
+}
+.history-year-num{font-size:2rem;font-weight:800;line-height:1;letter-spacing:-.02em;flex-shrink:0}
+.history-year-event{font-size:.72rem;opacity:.9;line-height:1.35;flex:1}
+.history-year-arrows{display:flex;gap:.3rem;flex-shrink:0}
+.history-arrow-btn{
+  background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:6px;
+  width:28px;height:28px;cursor:pointer;font-size:1rem;display:flex;align-items:center;justify-content:center;
+  transition:background .15s
+}
+.history-arrow-btn:hover{background:rgba(255,255,255,.35)}
+.history-arrow-btn:disabled{opacity:.3;cursor:default}
+
+/* Timeline slider */
+.timeline-card{background:var(--card);border-radius:10px;padding:.9rem 1rem;box-shadow:var(--shadow)}
+.timeline-card h4{font-size:.78rem;font-weight:700;color:var(--blue);margin-bottom:.75rem;text-transform:uppercase;letter-spacing:.05em}
+
+.timeline-track{position:relative;padding:0 8px;margin-bottom:.4rem}
+input[type=range].timeline-range{
+  -webkit-appearance:none;appearance:none;
+  width:100%;height:4px;background:var(--border);border-radius:2px;outline:none;cursor:pointer;
+}
+input[type=range].timeline-range::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;
+  width:18px;height:18px;border-radius:50%;background:var(--blue);border:3px solid #fff;
+  box-shadow:0 1px 4px rgba(0,0,0,.25);cursor:pointer;transition:transform .1s;
+}
+input[type=range].timeline-range::-webkit-slider-thumb:hover{transform:scale(1.2)}
+input[type=range].timeline-range::-moz-range-thumb{
+  width:18px;height:18px;border-radius:50%;background:var(--blue);border:3px solid #fff;
+  box-shadow:0 1px 4px rgba(0,0,0,.25);cursor:pointer;
+}
+
+/* Year tick marks */
+.timeline-ticks{display:flex;justify-content:space-between;padding:0 2px;margin-top:.35rem}
+.timeline-tick{display:flex;flex-direction:column;align-items:center;gap:.15rem;cursor:pointer;min-width:0}
+.timeline-tick-dot{
+  width:8px;height:8px;border-radius:50%;background:var(--border);border:2px solid var(--border);
+  transition:all .15s;flex-shrink:0
+}
+.timeline-tick.active .timeline-tick-dot{background:var(--blue);border-color:var(--blue);transform:scale(1.3)}
+.timeline-tick.has-data .timeline-tick-dot{border-color:var(--blue)}
+.timeline-tick.no-data .timeline-tick-dot{opacity:.4}
+.timeline-tick-label{font-size:.62rem;font-weight:700;color:var(--gray);white-space:nowrap}
+.timeline-tick.active .timeline-tick-label{color:var(--blue)}
+.timeline-tick.no-data .timeline-tick-label{opacity:.45}
+
+/* Timeline events list */
+.timeline-events{display:flex;flex-direction:column;gap:.35rem;margin-top:.5rem}
+.timeline-event-item{
+  display:flex;align-items:flex-start;gap:.5rem;
+  font-size:.74rem;line-height:1.4;
+}
+.timeline-event-dot{
+  width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:.2rem;
+}
+.timeline-event-dot.redistricting{background:var(--blue)}
+.timeline-event-dot.political    {background:var(--amber)}
+.timeline-event-dot.legal        {background:var(--red)}
+.timeline-event-year{font-weight:700;color:var(--gray);flex-shrink:0;min-width:28px}
+.timeline-event-text{color:#444}
+
+/* Stats panel */
+.history-stats-card{background:var(--card);border-radius:10px;padding:.7rem .85rem;box-shadow:var(--shadow)}
+.history-stats-card h4{font-size:.72rem;font-weight:700;color:var(--blue);margin-bottom:.45rem;text-transform:uppercase;letter-spacing:.05em}
+.stat-row{display:flex;justify-content:space-between;align-items:center;padding:.18rem 0;border-bottom:1px solid var(--border);font-size:.76rem}
+.stat-row:last-child{border-bottom:none}
+.stat-label{color:var(--gray)}
+.stat-val{font-weight:700}
+.stat-val.dem{color:var(--blue)}
+.stat-val.rep{color:var(--red)}
+.stat-val.bad{color:var(--red)}
+.stat-val.ok {color:var(--amber)}
+.stat-val.good{color:var(--green)}
+
+/* District wasted-vote breakdown table */
+.wasted-table{width:100%;border-collapse:collapse;font-size:.71rem}
+.wasted-table th{text-align:left;font-size:.62rem;font-weight:700;color:var(--gray);
+  text-transform:uppercase;padding:.18rem .3rem;border-bottom:2px solid var(--border);white-space:nowrap}
+.wasted-table td{padding:.2rem .3rem;border-bottom:1px solid var(--border);vertical-align:middle}
+.wasted-table tr:last-child td{border-bottom:none}
+.wasted-table tr.cracked-d{background:#fff3f3}
+.wasted-table tr.packed-d {background:#f0f4ff}
+.wasted-table tr.packed-r {background:#fff8f0}
+.wasted-type-badge{
+  display:inline-block;border-radius:3px;padding:.08rem .3rem;font-size:.6rem;font-weight:700;white-space:nowrap
+}
+.wasted-type-badge.cracked-d{background:#fde8e8;color:#b00}
+.wasted-type-badge.packed-d {background:#dce8fd;color:#14498c}
+.wasted-type-badge.packed-r {background:#fdeede;color:#963e00}
+.wasted-type-badge.comp     {background:#e8f5e9;color:#2e7d32}
+.wasted-bar-wrap{width:60px;display:inline-block;vertical-align:middle}
+.wasted-bar{height:6px;border-radius:3px;margin:.1rem 0}
+
+/* Seats-votes mini bar */
+.seats-votes-bar{height:10px;border-radius:5px;overflow:hidden;display:flex;margin:.3rem 0 .15rem}
+.seats-votes-bar .dem-seg{background:var(--blue)}
+.seats-votes-bar .rep-seg{background:var(--red)}
+
+/* District hover info */
+.district-hover-card{background:var(--card);border-radius:10px;padding:.85rem 1rem;box-shadow:var(--shadow);border-left:3px solid var(--blue)}
+
+/* Map legend overlay */
+.map-legend-overlay{
+  position:absolute;bottom:1.2rem;left:1rem;
+  background:rgba(255,255,255,.9);border-radius:8px;
+  padding:.55rem .75rem;box-shadow:0 2px 8px rgba(0,0,0,.15);
+  pointer-events:none;min-width:160px;
+}
+.legend-gradient-bar{
+  height:10px;border-radius:4px;margin:.3rem 0 .15rem;
+  background:linear-gradient(to right,#c0392b,#9b59b6,#1a4b8c);
+}
+.legend-gradient-labels{display:flex;justify-content:space-between;font-size:.62rem;color:var(--gray)}
+
+/* No-token notice */
+.token-notice{
+  height:540px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:var(--card);border-radius:10px;box-shadow:var(--shadow);gap:.6rem;text-align:center;
+  padding:2rem;
+}
+.token-notice h3{color:var(--blue);font-size:1rem}
+.token-notice code{background:var(--light);padding:.2rem .5rem;border-radius:4px;font-size:.82rem}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Georgia Redistricting Ensemble Analysis</h1>
+    <p>Comparing enacted maps against thousands of computer-generated neutral maps · Fair Districts Georgia</p>
+  </div>
+</header>
+
+<div class="nav-bar" id="nav-bar">
+  <span class="nav-label">Chamber:</span>
+  <div class="nav-tabs" id="chamber-tabs"></div>
+  <div class="nav-sep"></div>
+  <span class="nav-label">View:</span>
+  <div class="nav-tabs" id="view-tabs">
+    <div class="nav-tab active" data-view="metrics">Metrics</div>
+    <div class="nav-tab" data-view="history">History</div>
+    <div class="nav-tab" data-view="impact">Impact</div>
+    <div class="nav-tab" data-view="map">Map</div>
+    <div class="nav-tab" data-view="run">Run Analysis</div>
+    <div class="nav-tab" data-view="sources">Sources &amp; Config</div>
+  </div>
+</div>
+
+<!-- Global info popover -->
+<div class="popover-backdrop" id="popover-backdrop" onclick="closePopover()">
+  <div class="popover" id="popover" onclick="event.stopPropagation()">
+    <div class="popover-head">
+      <h3 id="popover-title">About this metric</h3>
+      <button class="popover-close" onclick="closePopover()">✕</button>
+    </div>
+    <div class="popover-body" id="popover-body"></div>
+  </div>
+</div>
+
+<main id="main"><div class="loading">Loading…</div></main>
+
+<script>
+// ── API Base URL config ───────────────────────────────────────────────────────
+// For production (GitHub Pages → Modal), set this to your Modal endpoint URL.
+// Leave null to auto-detect: localhost in dev, Modal URL when hosted.
+window.API_BASE_OVERRIDE = null;
+
+// Mapbox token — loaded automatically from:
+//   1. /api/config  (Modal Secret or .env  — used when backend is running)
+//   2. GitHub Actions inject at deploy time (used for GitHub Pages static sandbox)
+// Do NOT paste a real token here — it will be blocked by GitHub push protection.
+window.MAPBOX_TOKEN = null; // __MAPBOX_TOKEN_INJECT__ ← replaced by CI, do not edit this line
+
+const IS_LOCAL = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+
+// On GitHub Pages: use static pre-computed JSON by default.
+// Set window.API_BASE_OVERRIDE to your Modal URL to use the live backend instead.
+const API_BASE = window.API_BASE_OVERRIDE || (IS_LOCAL ? 'http://localhost:8001' : null);
+
+// Static mode: GitHub Pages with no Modal URL configured
+const IS_STATIC = !API_BASE;
+
+// Map API paths → pre-computed static JSON files in docs/data/
+function pathToStatic(path) {
+  const [bare, qs] = path.split('?');
+  const params = new URLSearchParams(qs || '');
+
+  // ── Exact matches ────────────────────────────────────────────────────────
+  if (bare === '/health')                   return 'data/health.json';
+  if (bare === '/api/chambers')             return 'data/chambers.json';
+  if (bare === '/api/info')                 return 'data/info.json';
+  if (bare === '/api/algorithms')           return 'data/algorithms.json';
+  if (bare === '/api/ensemble/runs')        return 'data/runs.json';
+
+  // ── State-aware routes (new pipeline data) ───────────────────────────────
+  // /api/states/{state}/info  →  data/states/{state}/config.json
+  const stateInfoM = bare.match(/^\/api\/states\/(\w+)\/info$/);
+  if (stateInfoM) return `data/states/${stateInfoM[1].toUpperCase()}/config.json`;
+
+  // /api/states/{state}/{chamber}/cycles  →  data/states/{state}/{chamber}/cycles.json
+  const cyclesM = bare.match(/^\/api\/states\/(\w+)\/(\w+)\/cycles$/);
+  if (cyclesM) return `data/states/${cyclesM[1].toUpperCase()}/${cyclesM[2]}/cycles.json`;
+
+  // /api/states/{state}/{chamber}/metrics/{year}  →  data/states/{state}/{chamber}/{year}/metrics.json
+  const cycleMetricsM = bare.match(/^\/api\/states\/(\w+)\/(\w+)\/metrics\/(\d+)$/);
+  if (cycleMetricsM) return `data/states/${cycleMetricsM[1].toUpperCase()}/${cycleMetricsM[2]}/${cycleMetricsM[3]}/metrics.json`;
+
+  // /api/states/{state}/{chamber}/elections/{year}  →  data/states/{state}/{chamber}/{year}/elections.json
+  const cycleElecM = bare.match(/^\/api\/states\/(\w+)\/(\w+)\/elections\/(\d+)$/);
+  if (cycleElecM) return `data/states/${cycleElecM[1].toUpperCase()}/${cycleElecM[2]}/${cycleElecM[3]}/elections.json`;
+
+  // /api/states/{state}/{chamber}/boundaries/{year}  →  data/states/{state}/{chamber}/{year}/boundaries.geojson
+  const boundaryM = bare.match(/^\/api\/states\/(\w+)\/(\w+)\/boundaries\/(\d+)$/);
+  if (boundaryM) return `data/states/${boundaryM[1].toUpperCase()}/${boundaryM[2]}/${boundaryM[3]}/boundaries.geojson`;
+
+  // ── Ensemble routes (Metrics tab) — handles both path orderings ──────────
+  // Formats: /api/ensemble/{chamber}/enacted  OR  /api/states/GA/{chamber}/ensemble/enacted
+  const enactedM = bare.match(/^\/api\/(?:states\/\w+\/|ensemble\/)?(\w+)(?:\/ensemble)?\/enacted$/);
+  if (enactedM) return `data/${enactedM[1]}_enacted.json`;
+
+  const summaryM = bare.match(/^\/api\/(?:states\/\w+\/|ensemble\/)?(\w+)(?:\/ensemble)?\/summary$/);
+  if (summaryM) return `data/${summaryM[1]}_summary.json`;
+
+  // /api/ensemble/{chamber}/histogram  OR  /api/states/GA/{chamber}/histogram  (with ?metric=)
+  const histM = bare.match(/^\/api\/(?:states\/\w+\/|ensemble\/)?(\w+)(?:\/ensemble)?\/histogram$/);
+  if (histM) return `data/${histM[1]}_hist_${params.get('metric')||'dem_seats'}.json`;
+
+  // ── Map routes ───────────────────────────────────────────────────────────
+  const mapEnactedM = bare.match(/^\/api\/maps\/(?:\w+\/)?(\w+)\/enacted$/);
+  if (mapEnactedM) return `data/${mapEnactedM[1]}_map_enacted.json`;
+  const mapStabM = bare.match(/^\/api\/maps\/(?:\w+\/)?(\w+)\/stability$/);
+  if (mapStabM) return `data/${mapStabM[1]}_map_stability.json`;
+
+  return path; // unmapped — will gracefully 404
+}
+
+async function fetchApi(path, options) {
+  const url = IS_STATIC ? pathToStatic(path) : `${API_BASE}${path}`;
+  return fetch(url, options);
+}
+
+// Active state — defaults to GA; multi-state selector planned for Phase 3
+const ACTIVE_STATE = 'GA';
+
+let activeView = 'metrics';
+let activeChamber = null;
+let availableChambers = [];
+let chartInstances = {};
+let leafletMap = null;
+let districtLayer = null;
+let stabilityLayer = null;
+let runPollTimer = null;
+let infoCache = null;
+let algoInfo = {};
+let chamberMetas = {};
+
+// ── Metric definitions with full educational content ──────────────────────
+const METRICS = {
+  dem_seats: {
+    label: 'Democratic Seats',
+    shortLabel: 'Dem Seats',
+    format: v => Math.round(v).toString(),
+    unit: 'seats',
+    interpret: (d, chamber) => {
+      const diff = d.enacted_value - d.ensemble_median;
+      const ndist = {house:180,senate:56,congress:14}[chamber]||'';
+      return diff < -0.4
+        ? `Democrats win <strong>${Math.abs(diff).toFixed(0)} fewer seats</strong> than the median neutral map would produce.`
+        : diff > 0.4
+        ? `Democrats win <strong>${diff.toFixed(0)} more seats</strong> than the median neutral map.`
+        : `Democratic seat share matches what neutral maps typically produce.`;
+    },
+    popover: {
+      what: `Counts how many of the <em>N</em> districts Democrats would win based on 2020 Presidential vote totals assigned to each district.`,
+      how: `For each step of the Markov chain, we tally which districts have more Democratic than Republican votes. The histogram shows how many neutral maps produce each seat count.`,
+      interpret: [
+        `If the enacted map is at the <strong>low end</strong> (low percentile), it gives Democrats fewer seats than chance-drawn maps would — a sign of packing or cracking Democratic voters.`,
+        `If at the <strong>high end</strong>, Republicans are disadvantaged.`,
+        `The 5th–95th percentile range is the "normal zone." Outside that zone = statistically unusual.`,
+      ],
+      caveat: `Seat predictions use 2020 Presidential results as a proxy for partisan lean. Actual outcomes vary by year and candidate.`,
+    },
+  },
+  efficiency_gap: {
+    label: 'Efficiency Gap',
+    shortLabel: 'Eff. Gap',
+    format: v => (v*100).toFixed(1)+'%',
+    unit: '%',
+    interpret: (d) => {
+      const v = d.enacted_value;
+      if (v > 0.08) return `This map wastes <strong>${(v*100).toFixed(1)}% more Democratic votes</strong> than Republican votes — a strong Republican advantage.`;
+      if (v < -0.08) return `This map wastes <strong>${(Math.abs(v)*100).toFixed(1)}% more Republican votes</strong> — a Democratic advantage.`;
+      return `Efficiency gap is within the ±8% competitive range.`;
+    },
+    popover: {
+      what: `Measures which party's votes are "wasted" more. A wasted vote is either cast for a losing candidate (all wasted) or cast beyond what's needed to win (the excess margin). The efficiency gap is the difference in wasted votes between parties, as a fraction of total votes.`,
+      how: `For each neutral map, we compute: (Dem wasted votes − Rep wasted votes) / total votes. Positive = more Dem waste = Republican advantage.`,
+      interpret: [
+        `<strong>±0–5%</strong>: Highly competitive, roughly balanced.`,
+        `<strong>±5–8%</strong>: Mild partisan lean, within normal variation.`,
+        `<strong>Above ±8%</strong>: Flagged in academic literature as potentially problematic.`,
+        `A map at the 95th+ percentile means almost no neutral map wastes Democratic votes this much more than Republican votes.`,
+      ],
+      caveat: `Efficiency gap varies with electoral conditions. A gap under a specific map may appear large in wave elections and small in stable ones.`,
+      reference: `Stephanopoulos & McGhee (2015), <em>Partisan Gerrymandering and the Efficiency Gap</em>.`,
+    },
+  },
+  mean_median: {
+    label: 'Mean–Median',
+    shortLabel: 'Mean–Med',
+    format: v => (v*100).toFixed(1)+'%',
+    unit: '%',
+    interpret: (d) => {
+      const v = d.enacted_value;
+      if (v > 0.04) return `<strong>Democratic votes are systematically spread</strong> across districts more than Republicans — a sign of vote cracking.`;
+      if (v < -0.04) return `Republican votes are more spread than Democratic votes across districts.`;
+      return `Vote distribution is roughly symmetric across districts.`;
+    },
+    popover: {
+      what: `Compares a party's <em>mean</em> vote share across all districts to its <em>median</em> vote share (the district right in the middle). If these differ significantly, it means the party's support is distributed unevenly — some districts have many more Democratic votes than needed to win, while others are just barely lost.`,
+      how: `We compute: (average Dem vote share across districts) minus (median Dem vote share). A large positive gap means Democrats over-perform in some districts and under-perform in many others.`,
+      interpret: [
+        `<strong>Near 0</strong>: Symmetric distribution — neither party is systematically disadvantaged.`,
+        `<strong>Large positive</strong>: Democrats are "packed" into a few high-margin districts and "cracked" across many marginal ones.`,
+        `<strong>Large negative</strong>: Republicans face the same disadvantage.`,
+        `This is one of the most reliable gerrymandering indicators because it captures systematic patterns, not just seat counts.`,
+      ],
+      reference: `Bernstein & Duchin (2017), <em>A Formula Goes to Court</em>.`,
+    },
+  },
+  polsby_popper_mean: {
+    label: 'Compactness',
+    shortLabel: 'Compactness',
+    format: v => v.toFixed(3),
+    unit: 'PP score',
+    interpret: (d) => {
+      const v = d.enacted_value;
+      const p = d.percentile_rank;
+      return p > 90
+        ? `Districts are <strong>more compact than usual</strong> — but compactness alone doesn't indicate fairness.`
+        : p < 10
+        ? `Districts are <strong>less compact than typical neutral maps</strong> — more irregular shapes.`
+        : `District compactness is within the normal range.`;
+    },
+    popover: {
+      what: `The Polsby-Popper score measures how "round" each district is: area divided by the area of a circle with the same perimeter. A score of 1.0 is a perfect circle; most real districts score 0.1–0.4.`,
+      how: `We average the Polsby-Popper score across all districts. GerryChain uses actual district geometries from the enacted shapefile to compute this for each neutral map.`,
+      interpret: [
+        `<strong>High score (near 1.0)</strong>: Compact, round districts.`,
+        `<strong>Low score</strong>: Irregular, elongated, or oddly-shaped districts.`,
+        `<strong>Important caveat</strong>: Compactness is a weak gerrymandering indicator on its own. A gerrymander can have compact districts (packing communities) or irregular districts for legitimate reasons (following county lines, rivers, or communities of interest).`,
+        `Use this metric alongside vote-based measures, not as a standalone indicator.`,
+      ],
+    },
+  },
+  num_cut_edges: {
+    label: 'Boundary Fragmentation',
+    shortLabel: 'Fragmentation',
+    format: v => Math.round(v).toLocaleString(),
+    unit: 'split edges',
+    interpret: (d) => {
+      const p = d.percentile_rank;
+      return p > 95
+        ? `The enacted map <strong>splits more precinct boundaries</strong> than nearly all neutral maps — a sign of fine-grained boundary manipulation.`
+        : p < 5
+        ? `The enacted map splits fewer boundaries than typical, suggesting larger, coarser-grained districts.`
+        : `Boundary fragmentation is within the normal range.`;
+    },
+    popover: {
+      what: `Counts the number of "cut edges" — precinct-to-precinct adjacency connections that are severed because the two precincts end up in different districts. More cuts mean finer-grained control over who is assigned where.`,
+      how: `Each precinct is a node in a graph; edges connect neighboring precincts. A cut edge is one where the two connected precincts are in different districts. Neutral maps tend to cluster precincts into large, contiguous blocks with fewer cuts. Gerrymandered maps often need many more cuts to achieve partisan targets.`,
+      interpret: [
+        `<strong>High percentile</strong>: The enacted map requires many more boundary splits than neutral maps — a sign that the mapmaker was carefully managing which specific precincts ended up in which districts.`,
+        `<strong>Low percentile</strong>: Fewer splits than typical — districts are formed from larger, coarser geographic blocks.`,
+        `This is a structural measure, not directly a partisan fairness measure, but systematic over-cutting is associated with intentional boundary manipulation.`,
+      ],
+    },
+  },
+};
+
+const DISPLAY_ORDER = ['dem_seats','efficiency_gap','mean_median','polsby_popper_mean','num_cut_edges'];
+
+// ── Popover ─────────────────────────────────────────────────────────────────
+function openPopover(metricKey, chamber, compData) {
+  const meta = METRICS[metricKey];
+  if (!meta) return;
+  const info = meta.popover;
+  const d = compData;
+
+  let html = `<h4>What it measures</h4><p>${info.what}</p>`;
+  html += `<h4>How it's calculated</h4><p>${info.how}</p>`;
+  html += `<h4>How to interpret</h4><ul>${info.interpret.map(i=>`<li>${i}</li>`).join('')}</ul>`;
+  if (info.caveat) html += `<h4>Important caveat</h4><p>${info.caveat}</p>`;
+  if (info.reference) html += `<h4>Reference</h4><p>${info.reference}</p>`;
+
+  if (d) {
+    const pct = d.percentile_rank;
+    const cls = pctClass(pct);
+    const interpretation = meta.interpret(d, chamber);
+    html += `<h4>For the ${chamber} chamber</h4>
+    <div class="interp-box">
+      <strong>Enacted value:</strong> ${meta.format(d.enacted_value)} — at the <strong>${pct.toFixed(0)}th percentile</strong> of ${d.ensemble_size||''}+ neutral maps.<br>
+      <strong>Neutral median:</strong> ${meta.format(d.ensemble_median)} &nbsp;|&nbsp; <strong>Normal range (5–95%):</strong> ${meta.format(d.ensemble_p5)} – ${meta.format(d.ensemble_p95)}<br><br>
+      ${interpretation}
+    </div>`;
+  }
+
+  document.getElementById('popover-title').textContent = meta.label;
+  document.getElementById('popover-body').innerHTML = html;
+  document.getElementById('popover-backdrop').classList.add('open');
+}
+
+function closePopover() {
+  document.getElementById('popover-backdrop').classList.remove('open');
+}
+document.addEventListener('keydown', e => { if(e.key==='Escape') closePopover(); });
+
+// (no collapse toggles — descriptions are always visible)
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+const pctClass = p => p<=5||p>=95 ? 'outlier' : (p<=10||p>=90 ? 'moderate' : 'normal');
+
+function districtColor(id, total) {
+  const h = (parseInt(id) * (360/total)) % 360;
+  return `hsl(${h},55%,52%)`;
+}
+function stabilityColor(v) {
+  if (v==null) return '#ccc';
+  const r = Math.round(220*(1-v)), g = Math.round(180*v+40);
+  return `rgb(${r},${g},60)`;
+}
+
+// ── Chart.js histogram ────────────────────────────────────────────────────────
+function buildChart(canvasId, histogram, enactedValue, metric) {
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  if (chartInstances[canvasId]) chartInstances[canvasId].destroy();
+  const { bin_edges: edges, counts } = histogram;
+  const fmt = METRICS[metric]?.format;
+  const labels = counts.map((_,i) => fmt ? fmt((edges[i]+edges[i+1])/2) : '');
+  const colors = counts.map((_,i) =>
+    (enactedValue>=edges[i] && enactedValue<edges[i+1]) ? 'rgba(192,57,43,.85)' : 'rgba(26,75,140,.48)'
+  );
+  const linePlugin = {
+    id:'eLine',
+    afterDraw(chart) {
+      const {ctx:c,chartArea:{top,bottom},scales:{x}} = chart;
+      const xPx = x.left + (enactedValue-edges[0])/(edges[edges.length-1]-edges[0])*(x.right-x.left);
+      c.save(); c.strokeStyle='rgba(192,57,43,.9)'; c.lineWidth=2; c.setLineDash([4,3]);
+      c.beginPath(); c.moveTo(xPx,top); c.lineTo(xPx,bottom); c.stroke(); c.restore();
+    }
+  };
+  chartInstances[canvasId] = new Chart(ctx, {
+    type:'bar',
+    data:{labels,datasets:[{data:counts,backgroundColor:colors,borderWidth:0,borderRadius:2}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{
+        title:items=>`~${labels[items[0].dataIndex]}`,
+        label:i=>`${i.raw.toLocaleString()} neutral maps`
+      }}},
+      scales:{x:{display:false},y:{display:false}},animation:{duration:200}},
+    plugins:[linePlugin],
+  });
+}
+
+// ── Metrics view ──────────────────────────────────────────────────────────────
+async function renderMetrics(chamber) {
+  const main = document.getElementById('main');
+  main.innerHTML = '<div class="loading">Loading ensemble data…</div>';
+  let enacted, histograms;
+  try {
+    [enacted, ...histograms] = await Promise.all([
+      fetchApi(`/api/ensemble/${chamber}/enacted`).then(r=>r.json()),
+      ...DISPLAY_ORDER.map(m=>fetchApi(`/api/ensemble/${chamber}/histogram?metric=${m}&bins=40`).then(r=>r.json())),
+    ]);
+  } catch(e) { main.innerHTML=`<div class="error">${e.message}</div>`; return; }
+
+  const hists={};
+  DISPLAY_ORDER.forEach((m,i) => hists[m]=histograms[i]);
+  const comp = enacted.comparison;
+  const nOut = DISPLAY_ORDER.filter(m=>comp[m]?.is_outlier).length;
+  const n = DISPLAY_ORDER.filter(m=>comp[m]).length;
+  const label = {house:'House',senate:'Senate',congress:'Congressional'}[chamber];
+  const ndist = {house:180,senate:56,congress:14}[chamber];
+
+  const vClass = nOut>=3?'outlier':nOut>=1?'moderate':'normal';
+  const vIcon  = nOut>=3?'⚠️':nOut>=1?'⚡':'✓';
+  const vTitle = nOut>=3
+    ? `The enacted ${label} map is a statistical outlier on ${nOut} of ${n} key measures.`
+    : nOut>=1
+    ? `The enacted ${label} map shows outlier behavior on ${nOut} of ${n} measures.`
+    : `The enacted ${label} map is within the normal range on all measures.`;
+  const vText = nOut>=3
+    ? `Across ${enacted.ensemble_size.toLocaleString()} computer-drawn neutral maps, the enacted map falls in the extreme tail on most fairness indicators. This is statistically unusual.`
+    : nOut>=1
+    ? `Most metrics are within normal range; one or more fall in the statistically unusual zone.`
+    : `All metrics fall within what neutral maps typically produce.`;
+
+  const cards = DISPLAY_ORDER.filter(m=>comp[m]).map(metric => {
+    const d = comp[metric];
+    const meta = METRICS[metric];
+    const cls = pctClass(d.percentile_rank);
+    const canvasId = `chart-${chamber}-${metric}`;
+    d.ensemble_size = enacted.ensemble_size;
+    const interpText = meta.interpret(d, chamber);
+    const pop = meta.popover || {};
+    const bulletHtml = (pop.interpret||[]).map(b=>`<li style="margin-bottom:.22rem">${b}</li>`).join('');
+    return `
+    <div class="metric-card${d.is_outlier?' is-outlier':''}">
+
+      <!-- LEFT: name + numbers -->
+      <div class="metric-left">
+        <div class="metric-header">
+          <span class="metric-name">${meta.label}<button class="info-sup" onclick="openPopover('${metric}','${chamber}',window._comp?.['${metric}'])" title="Full methodology">ℹ</button></span>
+          <span class="pct-badge ${cls}">${d.percentile_rank.toFixed(0)}th&nbsp;pct</span>
+        </div>
+        <div class="metric-values">
+          <div class="mv-item"><span class="mv-label">Enacted</span><span class="mv-val enacted">${meta.format(d.enacted_value)}</span></div>
+          <div class="mv-item"><span class="mv-label">Neutral median</span><span class="mv-val">${meta.format(d.ensemble_median)}</span></div>
+          <div class="mv-item full"><span class="mv-label">Normal range (5–95%)</span><span class="mv-val range">${meta.format(d.ensemble_p5)} – ${meta.format(d.ensemble_p95)}</span></div>
+        </div>
+      </div>
+
+      <!-- MIDDLE: histogram -->
+      <div class="metric-mid">
+        <div class="chart-wrap"><canvas id="${canvasId}"></canvas></div>
+        <div style="font-size:.6rem;color:var(--gray);text-align:center">
+          ${(d.ensemble_size||'').toLocaleString()} neutral maps &nbsp;·&nbsp; <span style="color:var(--red);font-weight:700">|</span> = enacted
+        </div>
+      </div>
+
+      <!-- RIGHT: always-visible explanation -->
+      <div class="metric-right">
+        <div class="interp-box">${interpText}</div>
+        <div style="font-size:.79rem;color:#444;line-height:1.55">
+          ${pop.what ? `<p style="margin-bottom:.3rem"><strong>What it measures:</strong> ${pop.what}</p>` : ''}
+          ${bulletHtml ? `<ul style="padding-left:1.1rem;margin:.1rem 0">${bulletHtml}</ul>` : ''}
+          ${pop.caveat ? `<p style="font-size:.73rem;color:var(--gray);margin-top:.35rem"><em>Note: ${pop.caveat}</em></p>` : ''}
+        </div>
+      </div>
+
+    </div>`;
+  }).join('');
+
+  main.innerHTML = `
+    <div class="verdict ${vClass}">
+      <div class="verdict-icon">${vIcon}</div>
+      <div><h2>${vTitle}</h2>
+      <p>${vText} Comparing ${ndist} enacted ${label} districts to ${enacted.ensemble_size.toLocaleString()} neutral maps. Each row shows the numbers, distribution, and interpretation. Click ℹ on any metric for full methodology.</p></div>
+    </div>
+    <div class="metric-strip">${cards}</div>
+    <div style="background:var(--card);border-radius:8px;padding:.6rem .9rem;box-shadow:var(--shadow);font-size:.75rem;color:#666;line-height:1.55">
+      <span style="color:var(--red);font-weight:700">Red line</span> = enacted map · badge = percentile of neutral maps ·
+      <span style="background:#fde8e8;color:var(--red);padding:.08rem .28rem;border-radius:5px;font-size:.7rem;font-weight:700">&lt;5th or &gt;95th</span> = outlier ·
+      Method: <a href="https://mggg.org/gerrychain/" target="_blank">GerryChain ReCom</a> · Data: <a href="https://redistrictingdatahub.org" target="_blank">RDH</a>
+    </div>`;
+
+  // Store comparison data globally for popover access
+  window._comp = comp;
+
+  requestAnimationFrame(() => {
+    DISPLAY_ORDER.filter(m=>comp[m]).forEach(m => {
+      if (hists[m]?.histogram) buildChart(`chart-${chamber}-${m}`, hists[m].histogram, comp[m].enacted_value, m);
+    });
+  });
+}
+
+// ── Impact view (Phase 4) ─────────────────────────────────────────────────────
+const _impactCharts = {};
+
+async function renderImpactView(chamber) {
+  const main = document.getElementById('main');
+  main.innerHTML = '<div class="loading">Loading historical data…</div>';
+
+  // Destroy any lingering Chart.js instances from this tab
+  Object.keys(_impactCharts).forEach(k => { _impactCharts[k]?.destroy(); delete _impactCharts[k]; });
+
+  // Load state config for cycle list
+  let cycles = [];
+  try {
+    const cfg = await fetchApi(`/api/states/${ACTIVE_STATE}/info`).then(r => r.json());
+    cycles = cfg.cycles || [];
+  } catch(e) {
+    cycles = [{year:2001},{year:2005},{year:2011},{year:2021}];
+  }
+
+  // Try to fetch metrics for every cycle (most may 404 until pipeline runs)
+  const metricsByYear = {};
+  await Promise.allSettled(
+    cycles.map(async c => {
+      try {
+        const r = await fetchApi(`/api/states/${ACTIVE_STATE}/${chamber}/metrics/${c.year}`);
+        if (r.ok) metricsByYear[c.year] = await r.json();
+      } catch(e) {}
+    })
+  );
+
+  const years      = cycles.map(c => c.year);
+  const hasAny     = Object.keys(metricsByYear).length > 0;
+  const chamberLabel = {house:'State House',senate:'State Senate',congress:'U.S. Congress'}[chamber] || chamber;
+
+  const noPipeline = `
+    <div class="impact-no-data">
+      No historical election data yet for this chamber.<br>
+      Run the data pipeline to unlock this view:<br><br>
+      <code>python scripts/fetch_boundaries.py --state GA</code><br>
+      <code>python scripts/fetch_elections.py --state GA</code><br>
+      <code>python scripts/compute_metrics.py --state GA</code>
+    </div>`;
+
+  main.innerHTML = `
+    <div class="impact-header">
+      <h2>Gerrymandering Impact — GA ${chamberLabel}</h2>
+      <p>Key fairness measures across each redistricting cycle · first general election on each map</p>
+    </div>
+
+    ${!hasAny ? noPipeline : `
+    <div class="impact-grid">
+      <div class="impact-chart-card impact-grid-full">
+        <h3>Efficiency Gap Over Time
+          <span style="font-weight:400;color:var(--gray);font-size:.68rem;margin-left:.4rem">(D wasted − R wasted) / total · positive = R advantage · ±8% = academic alarm threshold</span>
+        </h3>
+        <div class="impact-chart-wrap" style="height:110px"><canvas id="chart-eg"></canvas></div>
+        <div class="impact-legend" style="margin-top:.3rem">
+          <div class="impact-legend-item"><div class="impact-legend-swatch" style="background:var(--red)"></div>Favors R</div>
+          <div class="impact-legend-item"><div class="impact-legend-swatch" style="background:var(--blue)"></div>Favors D</div>
+          <div class="impact-legend-item"><div class="impact-legend-swatch" style="background:#ddd;border:1px dashed #999"></div>±8% threshold</div>
+        </div>
+      </div>
+
+      <div class="impact-chart-card">
+        <h3>Seats vs. Votes
+          <span style="font-weight:400;color:var(--gray);font-size:.68rem;margin-left:.3rem">diagonal = proportional</span>
+        </h3>
+        <div class="sv-canvas-wrap" style="height:200px"><canvas id="chart-sv"></canvas></div>
+      </div>
+
+      <div class="impact-chart-card">
+        <h3>Wasted Votes by Cycle
+          <span style="font-weight:400;color:var(--gray);font-size:.68rem;margin-left:.3rem">large gap = packing/cracking</span>
+        </h3>
+        <div class="impact-chart-wrap" style="height:160px"><canvas id="chart-wv"></canvas></div>
+        <div class="impact-legend" style="margin-top:.3rem">
+          <div class="impact-legend-item"><div class="impact-legend-swatch" style="background:var(--blue)"></div>D wasted</div>
+          <div class="impact-legend-item"><div class="impact-legend-swatch" style="background:var(--red)"></div>R wasted</div>
+        </div>
+      </div>
+    </div>`}`;
+
+  if (!hasAny) return;
+
+  // ── Build charts ──────────────────────────────────────────────────────────
+
+  const yearLabels = years.map(y => String(y));
+  const egVals  = years.map(y => metricsByYear[y]?.efficiency_gap ?? null);
+  const demSeat = years.map(y => metricsByYear[y]?.dem_seat_share ?? null);
+  const demVote = years.map(y => metricsByYear[y]?.dem_vote_share ?? null);
+  const wDem    = years.map(y => metricsByYear[y] ? (metricsByYear[y].wasted_dem_pct * 100) : null);
+  const wRep    = years.map(y => metricsByYear[y] ? (metricsByYear[y].wasted_rep_pct * 100) : null);
+
+  const egColors = egVals.map(v => v === null ? '#ccc' : v > 0 ? 'rgba(192,57,43,.75)' : 'rgba(26,75,140,.75)');
+
+  // Chart 1 — Efficiency Gap
+  _impactCharts['eg'] = new Chart(document.getElementById('chart-eg'), {
+    type: 'bar',
+    data: {
+      labels: yearLabels,
+      datasets: [{
+        label: 'Efficiency Gap',
+        data: egVals.map(v => v !== null ? +(v * 100).toFixed(2) : null),
+        backgroundColor: egColors,
+        borderRadius: 4,
+      }],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: {display: false},
+        tooltip: {callbacks: {label: i => `${i.raw > 0 ? '+' : ''}${i.raw?.toFixed(1)}% (favors ${i.raw > 0 ? 'R' : 'D'})`}},
+        annotation: {annotations: {
+          zero: {type:'line', xMin:0, xMax:0, borderColor:'#555', borderWidth:1.5, borderDash:[4,3]},
+          pos8: {type:'line', xMin:8, xMax:8, borderColor:'#c44', borderWidth:1, borderDash:[3,4], label:{display:true, content:'+8%', position:'start', color:'#c44', font:{size:9}}},
+          neg8: {type:'line', xMin:-8, xMax:-8, borderColor:'#44c', borderWidth:1, borderDash:[3,4], label:{display:true, content:'−8%', position:'start', color:'#44c', font:{size:9}}},
+        }},
+      },
+      scales: {
+        x: {title:{display:true, text:'Efficiency Gap (%)', font:{size:10}}, grid:{color:'rgba(0,0,0,.06)'}},
+        y: {ticks:{font:{size:11}}},
+      },
+    },
+  });
+
+  // Chart 2 — Seats vs Votes scatter
+  const svPoints = years
+    .filter(y => demVote[years.indexOf(y)] !== null && demSeat[years.indexOf(y)] !== null)
+    .map(y => ({
+      x: +(demVote[years.indexOf(y)] * 100).toFixed(1),
+      y: +(demSeat[years.indexOf(y)] * 100).toFixed(1),
+      label: String(y),
+    }));
+
+  // Diagonal proportionality line across the full chart range
+  const propLine = [{x:30, y:30}, {x:70, y:70}];
+
+  _impactCharts['sv'] = new Chart(document.getElementById('chart-sv'), {
+    type: 'scatter',
+    data: {
+      datasets: [
+        {
+          label: 'Redistricting Cycle',
+          data: svPoints,
+          backgroundColor: svPoints.map((_, i) => `hsl(${210 + i*40},65%,48%)`),
+          pointRadius: 9,
+          pointHoverRadius: 11,
+        },
+        {
+          label: 'Perfect proportionality',
+          data: propLine,
+          type: 'line',
+          borderColor: '#aaa',
+          borderDash: [5, 4],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          fill: false,
+        },
+      ],
+    },
+    plugins: [{
+      // Draw year labels on each scatter point
+      afterDraw(chart) {
+        const {ctx} = chart;
+        const ds = chart.data.datasets[0];
+        const meta = chart.getDatasetMeta(0);
+        ctx.save();
+        ctx.font = 'bold 11px system-ui';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        meta.data.forEach((pt, i) => {
+          ctx.fillStyle = '#333';
+          ctx.fillText(svPoints[i]?.label ?? '', pt.x, pt.y - 8);
+        });
+        ctx.restore();
+      },
+    }],
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: {display: false},
+        tooltip: {
+          filter: item => item.datasetIndex === 0,
+          callbacks: {
+            label: i => `${i.raw.label}: D votes ${i.raw.x}% → D seats ${i.raw.y}%`,
+          },
+        },
+      },
+      scales: {
+        x: {min:30, max:70, title:{display:true, text:'Democratic Vote Share (%)', font:{size:10}}, grid:{color:'rgba(0,0,0,.06)'}},
+        y: {min:20, max:80, title:{display:true, text:'Democratic Seat Share (%)', font:{size:10}}, grid:{color:'rgba(0,0,0,.06)'}},
+      },
+    },
+  });
+
+  // Chart 3 — Wasted Votes
+  _impactCharts['wv'] = new Chart(document.getElementById('chart-wv'), {
+    type: 'bar',
+    data: {
+      labels: yearLabels,
+      datasets: [
+        {label:'D wasted', data:wDem, backgroundColor:'rgba(26,75,140,.7)', borderRadius:3},
+        {label:'R wasted', data:wRep, backgroundColor:'rgba(192,57,43,.7)', borderRadius:3},
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: {display:false},
+        tooltip: {callbacks: {label: i => `${i.dataset.label}: ${i.raw?.toFixed(1)}% of all votes`}},
+      },
+      scales: {
+        x: {ticks:{font:{size:11}}},
+        y: {title:{display:true, text:'% of total votes', font:{size:10}}, grid:{color:'rgba(0,0,0,.06)'}},
+      },
+    },
+  });
+}
+
+// ── Map view ──────────────────────────────────────────────────────────────────
+let _mapboxMapTab = null;  // Mapbox instance for the Map tab
+
+async function renderMapView(chamber) {
+  const main = document.getElementById('main');
+
+  // If no Mapbox token, fall back to the simpler Leaflet map
+  if (!window.MAPBOX_TOKEN) {
+    return _renderMapLeaflet(chamber);
+  }
+
+  if (_mapboxMapTab) { _mapboxMapTab.remove(); _mapboxMapTab = null; }
+
+  main.innerHTML = `
+    <div class="map-layout">
+      <div class="map-controls">
+        <h3>Map</h3>
+
+        <label style="font-size:.72rem;font-weight:700;color:var(--gray);display:block;margin-bottom:.25rem">FIND YOUR DISTRICT</label>
+        <div class="map-search-wrap">
+          <input id="map-search-input" type="text" placeholder="Enter address…">
+          <button id="map-search-btn">Go</button>
+        </div>
+        <p id="map-search-info" style="font-size:.72rem;color:var(--gray);margin-bottom:.6rem;min-height:.9rem"></p>
+
+        <label style="font-size:.72rem;font-weight:700;color:var(--gray);display:block;margin-bottom:.25rem">LAYER</label>
+        <div class="map-layer-toggles">
+          <button class="map-layer-btn active" data-layer="districts">Enacted Districts</button>
+          <button class="map-layer-btn" data-layer="stability">Stability Heatmap</button>
+        </div>
+
+        <div class="map-legend" id="map-legend" style="display:none">
+          <div class="legend-title" id="legend-title"></div>
+          <div class="legend-bar"  id="legend-bar"></div>
+          <div class="legend-labels" id="legend-labels"></div>
+        </div>
+        <p class="map-info" id="map-info" style="margin-top:.5rem"></p>
+      </div>
+      <div class="map-container"><div id="mapbox-map-tab" style="height:100%;width:100%"></div></div>
+    </div>`;
+
+  mapboxgl.accessToken = window.MAPBOX_TOKEN;
+  _mapboxMapTab = new mapboxgl.Map({
+    container: 'mapbox-map-tab',
+    style: 'mapbox://styles/mapbox/light-v11',
+    center: [-83.5, 32.7],
+    zoom: 6,
+  });
+  _mapboxMapTab.addControl(new mapboxgl.NavigationControl(), 'top-right');
+
+  const popup = new mapboxgl.Popup({closeButton:false, closeOnClick:false});
+  let activeLayer = 'districts';
+  let geoCache = {};
+
+  async function loadLayer(layerName) {
+    const infoEl = document.getElementById('map-info');
+    if (infoEl) infoEl.textContent = 'Loading…';
+
+    // Fetch GeoJSON
+    let geo;
+    if (geoCache[layerName]) {
+      geo = geoCache[layerName];
+    } else {
+      try {
+        const url = layerName === 'districts'
+          ? `/api/maps/${chamber}/enacted`
+          : `/api/maps/${chamber}/stability`;
+        const r = await fetchApi(url);
+        geo = await r.json();
+        if (geo.detail) { if (infoEl) infoEl.textContent = geo.detail; return; }
+        // Add numeric ids for feature-state
+        geo.features = geo.features.map((f, i) => ({...f, id: i}));
+        geoCache[layerName] = geo;
+      } catch(e) { if (infoEl) infoEl.textContent = 'Error loading layer: ' + e.message; return; }
+    }
+
+    // Remove previous layers/source
+    ['fill-layer','outline-layer','outline-hover-layer'].forEach(id => {
+      if (_mapboxMapTab.getLayer(id)) _mapboxMapTab.removeLayer(id);
+    });
+    if (_mapboxMapTab.getSource('map-data')) _mapboxMapTab.removeSource('map-data');
+
+    _mapboxMapTab.addSource('map-data', {type:'geojson', data:geo, generateId:false});
+
+    if (layerName === 'districts') {
+      const total = geo.features.length;
+      _mapboxMapTab.addLayer({
+        id:'fill-layer', type:'fill', source:'map-data',
+        paint:{
+          'fill-color': ['interpolate',['linear'],
+            ['to-number',['coalesce',['get','DISTRICT'],['get','district_id'],0]],
+            1,  '#e84393',
+            Math.ceil(total/4),  '#f5a623',
+            Math.ceil(total/2),  '#7ed321',
+            Math.ceil(total*3/4),'#4a90e2',
+            total, '#9013fe',
+          ],
+          'fill-opacity':['case',['boolean',['feature-state','hover'],false],.8,.5],
+        },
+      });
+      _mapboxMapTab.addLayer({id:'outline-layer',type:'line',source:'map-data',paint:{'line-color':'#fff','line-width':1}});
+      _mapboxMapTab.addLayer({id:'outline-hover-layer',type:'line',source:'map-data',
+        paint:{'line-color':'#111','line-width':2.5},filter:['==',['id'],-1]});
+
+      const legend=document.getElementById('map-legend');
+      if(legend){
+        legend.style.display='block';
+        document.getElementById('legend-title').textContent='District';
+        document.getElementById('legend-bar').innerHTML=`<div style="flex:1;background:linear-gradient(to right,#e84393,#f5a623,#7ed321,#4a90e2,#9013fe)"></div>`;
+        document.getElementById('legend-labels').innerHTML=`<span>1</span><span>${total}</span>`;
+      }
+      if (infoEl) infoEl.textContent = `${total} enacted districts. Click any district for details.`;
+
+    } else {
+      _mapboxMapTab.addLayer({
+        id:'fill-layer', type:'fill', source:'map-data',
+        paint:{
+          'fill-color':['case',['==',['get','stability'],null],'#ccc',
+            ['interpolate',['linear'],['get','stability'],0,'#dc3c3c',.5,'#e8b020',1,'#2a8a2a']],
+          'fill-opacity':.75,
+        },
+      });
+      _mapboxMapTab.addLayer({id:'outline-layer',type:'line',source:'map-data',paint:{'line-color':'rgba(0,0,0,.1)','line-width':.3}});
+
+      const legend=document.getElementById('map-legend');
+      if(legend){
+        legend.style.display='block';
+        document.getElementById('legend-title').textContent='Stability (% of neutral maps)';
+        document.getElementById('legend-bar').innerHTML=`<div style="flex:1;background:linear-gradient(to right,#dc3c3c,#e8b020,#2a8a2a)"></div>`;
+        document.getElementById('legend-labels').innerHTML=`<span>0% (contested)</span><span>100% (stable)</span>`;
+      }
+      if (infoEl) infoEl.textContent = 'Red = frequently redrawn boundary. Green = stable core that stays in place regardless of how maps are drawn.';
+    }
+
+    // Fit bounds
+    const bounds = new mapboxgl.LngLatBounds();
+    geo.features.forEach(f => {
+      const coords = f.geometry?.coordinates;
+      if (!coords) return;
+      const pts = f.geometry.type==='Polygon' ? coords[0] : f.geometry.type==='MultiPolygon' ? coords.flat(2) : [];
+      pts.forEach(c => bounds.extend(c));
+    });
+    if (!bounds.isEmpty()) _mapboxMapTab.fitBounds(bounds, {padding:30, duration:600});
+
+    // Hover interaction
+    let hoverId = null;
+    _mapboxMapTab.on('mousemove', 'fill-layer', e => {
+      if (!e.features?.length) return;
+      _mapboxMapTab.getCanvas().style.cursor = 'pointer';
+      if (hoverId !== null) _mapboxMapTab.setFeatureState({source:'map-data',id:hoverId},{hover:false});
+      hoverId = e.features[0].id;
+      _mapboxMapTab.setFeatureState({source:'map-data',id:hoverId},{hover:true});
+      if (layerName==='districts') _mapboxMapTab.setFilter('outline-hover-layer',['==',['id'],hoverId]);
+      const p = e.features[0].properties;
+      const distId = p.DISTRICT || p.district_id || '?';
+      const pop = p.POPULATION ? `<br>Pop: ${(+p.POPULATION).toLocaleString()}` : '';
+      const stab = p.stability != null ? `<br>Stability: ${(p.stability*100).toFixed(0)}%` : '';
+      popup.setLngLat(e.lngLat).setHTML(`<strong>District ${distId}</strong>${pop}${stab}`).addTo(_mapboxMapTab);
+    });
+    _mapboxMapTab.on('mouseleave', 'fill-layer', () => {
+      _mapboxMapTab.getCanvas().style.cursor = '';
+      if (hoverId !== null) { _mapboxMapTab.setFeatureState({source:'map-data',id:hoverId},{hover:false}); hoverId=null; }
+      if (layerName==='districts') _mapboxMapTab.setFilter('outline-hover-layer',['==',['id'],-1]);
+      popup.remove();
+    });
+  }
+
+  _mapboxMapTab.on('load', () => loadLayer('districts'));
+
+  // Layer toggle buttons
+  document.querySelectorAll('.map-layer-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.map-layer-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeLayer = btn.dataset.layer;
+      loadLayer(activeLayer);
+    });
+  });
+
+  // District finder — Mapbox Geocoding API
+  async function findDistrict() {
+    const query = document.getElementById('map-search-input')?.value?.trim();
+    const infoEl = document.getElementById('map-search-info');
+    if (!query || !infoEl) return;
+    infoEl.textContent = 'Searching…';
+    try {
+      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json` +
+        `?country=US&bbox=-85.6,30.4,-80.8,35.0&access_token=${window.MAPBOX_TOKEN}`;
+      const data = await fetch(url).then(r => r.json());
+      const feat = data.features?.[0];
+      if (!feat) { infoEl.textContent = 'Address not found in Georgia.'; return; }
+      const [lng, lat] = feat.geometry.coordinates;
+      _mapboxMapTab.flyTo({center:[lng,lat], zoom:10, duration:800});
+      new mapboxgl.Marker({color:var_blue()}).setLngLat([lng,lat])
+        .setPopup(new mapboxgl.Popup().setHTML(`<strong>${feat.place_name}</strong><br><em>Click a district for details</em>`))
+        .addTo(_mapboxMapTab).togglePopup();
+      infoEl.textContent = `Showing: ${feat.place_name}`;
+    } catch(e) { infoEl.textContent = 'Geocoding error: ' + e.message; }
+  }
+
+  document.getElementById('map-search-btn')?.addEventListener('click', findDistrict);
+  document.getElementById('map-search-input')?.addEventListener('keydown', e => { if(e.key==='Enter') findDistrict(); });
+}
+
+function var_blue() { return getComputedStyle(document.documentElement).getPropertyValue('--blue').trim() || '#1a4b8c'; }
+
+// ── Leaflet fallback (no Mapbox token) ───────────────────────────────────────
+async function _renderMapLeaflet(chamber) {
+  const main = document.getElementById('main');
+  main.innerHTML = `
+    <div class="map-layout">
+      <div class="map-controls">
+        <h3>Map Layer</h3>
+        <div><label>Display</label>
+          <select id="map-mode-select">
+            <option value="enacted">Enacted Districts</option>
+            <option value="stability">Stability Heatmap</option>
+          </select>
+        </div>
+        <button id="map-load-btn">Load Map</button>
+        <div class="map-legend" id="map-legend" style="display:none">
+          <div class="legend-title" id="legend-title"></div>
+          <div class="legend-bar"  id="legend-bar"></div>
+          <div class="legend-labels" id="legend-labels"></div>
+        </div>
+        <p class="map-info" id="map-info"></p>
+        <p style="font-size:.71rem;color:var(--gray);margin-top:.8rem;line-height:1.4">
+          Add a Mapbox token for interactive district search and better styling.
+        </p>
+      </div>
+      <div class="map-container"><div id="leaflet-map"></div></div>
+    </div>`;
+
+  if (leafletMap) { leafletMap.remove(); leafletMap=null; }
+  leafletMap = L.map('leaflet-map').setView([32.7,-83.5],7);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',opacity:.35}).addTo(leafletMap);
+
+  async function loadLayer() {
+    const btn=document.getElementById('map-load-btn');
+    btn.disabled=true; btn.textContent='Loading…';
+    if (districtLayer){leafletMap.removeLayer(districtLayer);districtLayer=null;}
+    if (stabilityLayer){leafletMap.removeLayer(stabilityLayer);stabilityLayer=null;}
+    const mode=document.getElementById('map-mode-select').value;
+    const info=document.getElementById('map-info');
+    try {
+      if (mode==='enacted') {
+        const geo=await fetchApi(`/api/maps/${chamber}/enacted`).then(r=>r.json());
+        const total=geo.features.length;
+        districtLayer=L.geoJSON(geo,{
+          style:f=>({fillColor:districtColor(f.properties.DISTRICT,total),fillOpacity:.55,color:'#fff',weight:1.2}),
+          onEachFeature:(f,l)=>{const p=f.properties;l.bindPopup(`<b>District ${p.DISTRICT}</b><br>Pop: ${(p.POPULATION||0).toLocaleString()}`)}
+        }).addTo(leafletMap);
+        leafletMap.fitBounds(districtLayer.getBounds(),{padding:[20,20]});
+        info.textContent=`${total} enacted districts.`;
+      } else {
+        info.textContent='Loading stability data…';
+        const geo=await fetchApi(`/api/maps/${chamber}/stability`).then(r=>r.json());
+        if(geo.detail){info.textContent=geo.detail;btn.disabled=false;btn.textContent='Load Map';return;}
+        stabilityLayer=L.geoJSON(geo,{
+          style:f=>({fillColor:stabilityColor(f.properties.stability),fillOpacity:.75,color:'none',weight:0}),
+          onEachFeature:(f,l)=>{const p=f.properties;const pct=p.stability!=null?(p.stability*100).toFixed(0)+'%':'n/a';l.bindPopup(`<b>District ${p.district}</b><br>Stability: ${pct}`)}
+        }).addTo(leafletMap);
+        leafletMap.fitBounds(stabilityLayer.getBounds(),{padding:[20,20]});
+        info.textContent='Red = contested boundary. Green = stable.';
+      }
+    } catch(e){info.textContent='Error: '+e.message;}
+    btn.disabled=false; btn.textContent='Load Map';
+  }
+  document.getElementById('map-load-btn').addEventListener('click',loadLayer);
+  loadLayer();
+}
+
+// ── Run Analysis view ─────────────────────────────────────────────────────────
+let selectedAlgo = 'recom';
+
+async function renderRunView(chamber) {
+  const main = document.getElementById('main');
+
+  // Run Analysis requires a live backend — not available in static/GitHub Pages mode
+  if (IS_STATIC || !API_BASE) {
+    main.innerHTML = `
+      <div class="run-panel">
+        <h3>Run New Ensemble</h3>
+        <div class="interp-box" style="margin-bottom:1rem">
+          <strong>Requires a local or cloud backend.</strong>
+          GerryChain simulations cannot run in static/GitHub Pages mode.
+          To use this feature:
+          <ol style="margin:.5rem 0 0 1.1rem;line-height:1.8;font-size:.85rem">
+            <li>Install: <code>cd ~/codebox/fdga-chain && uv sync</code></li>
+            <li>Start API: <code>uv run uvicorn api.main:app --port 8001</code></li>
+            <li>Open <a href="http://localhost:8001" target="_blank">http://localhost:8001</a></li>
+          </ol>
+          Or deploy to Modal — see <code>modal_app.py</code> and set <code>window.API_BASE_OVERRIDE</code>.
+        </div>
+      </div>`;
+    return;
+  }
+
+  // Load algo info if not cached
+  if (!Object.keys(algoInfo).length) {
+    try { algoInfo = await fetchApi(`/api/algorithms`).then(r=>r.json()); } catch(e){}
+  }
+  // Get current chamber meta for pre-population
+  const meta = chamberMetas[chamber] || {};
+
+  const algoCards = Object.entries(algoInfo).map(([key,info]) => `
+    <div class="algo-card ${key===selectedAlgo?'selected':''}" data-algo="${key}" onclick="selectAlgo('${key}')">
+      <div class="algo-card-name">${info.name}</div>
+      <span class="algo-card-speed ${info.speed}">${info.speed}</span>
+      <div class="algo-card-desc">${info.description}</div>
+      <div class="algo-card-best"><strong>Best for:</strong> ${info.best_for}</div>
+    </div>`).join('');
+
+  // Pre-populate from current meta
+  const curSteps   = meta.steps   || 10000;
+  const curEpsilon = meta.epsilon  || 0.07;
+  const curAlgo    = meta.algorithm?.key || 'recom';
+  selectedAlgo = curAlgo;
+
+  const stepOpts = [1000,5000,10000,50000].map(v=>
+    `<option value="${v}" ${v===curSteps?'selected':''}>${v.toLocaleString()} ${v===1000?'(quick ~15s)':v===5000?'(~1 min)':v===10000?'(~2 min)':'(~10 min)'}</option>`).join('');
+  const epsOpts = [[0.05,'5% (strict)'],[0.07,'7% (default)'],[0.10,'10% (legal max)']].map(([v,l])=>
+    `<option value="${v}" ${v===curEpsilon?'selected':''}>${l}</option>`).join('');
+
+  main.innerHTML = `
+    <div class="run-panel">
+      <h3>Run New Ensemble</h3>
+      ${meta.ran_at ? `<p style="font-size:.78rem;color:var(--gray);margin-bottom:.7rem">Current ${chamber} ensemble: <strong>${meta.steps?.toLocaleString()} steps</strong> · ε=${(meta.epsilon*100).toFixed(0)}% · ran ${meta.ran_at?.slice(0,16).replace('T',' ')}</p>` : ''}
+      <div class="run-form" style="margin-bottom:.9rem">
+        <div class="field">
+          <label>Chamber</label>
+          <select id="run-chamber">
+            <option value="house" ${chamber==='house'?'selected':''}>State House (180)</option>
+            <option value="senate" ${chamber==='senate'?'selected':''}>State Senate (56)</option>
+            <option value="congress" ${chamber==='congress'?'selected':''}>Congressional (14)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Steps (neutral maps to generate)</label>
+          <select id="run-steps">${stepOpts}</select>
+        </div>
+        <div class="field">
+          <label>Population tolerance (ε)</label>
+          <select id="run-epsilon">${epsOpts}</select>
+        </div>
+        <button class="run-btn" id="run-btn">▶ Run Ensemble</button>
+        <div id="run-status-badge" style="display:none"></div>
+      </div>
+
+      <div style="margin-bottom:.6rem"><label style="font-size:.78rem;font-weight:700;color:var(--gray)">PROPOSAL ALGORITHM</label></div>
+      <div class="algo-cards" id="algo-cards">${algoCards}</div>
+      <p style="font-size:.76rem;color:var(--gray);margin-top:.5rem">
+        Running a new ensemble replaces the current one for that chamber. The map's stability heatmap updates automatically when the run completes.
+      </p>
+    </div>
+    <div>
+      <div class="section-title">Run History</div>
+      <div id="run-history-table"><div class="loading">Loading…</div></div>
+    </div>`;
+
+  await refreshRunHistory();
+
+  document.getElementById('run-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('run-btn');
+    const ch  = document.getElementById('run-chamber').value;
+    const st  = +document.getElementById('run-steps').value;
+    const ep  = +document.getElementById('run-epsilon').value;
+    btn.disabled=true; btn.textContent='Starting…';
+    try {
+      const resp = await fetchApi(`/api/states/${ACTIVE_STATE}/${ch}/ensemble/run?steps=${st}&epsilon=${ep}&algo=${selectedAlgo}`,{method:'POST'});
+      const run  = await resp.json();
+      showRunStatus('running','Running… please wait');
+      pollRunStatus(run.run_id, ch);
+    } catch(e) {
+      showRunStatus('error','Failed: '+e.message);
+      btn.disabled=false; btn.textContent='▶ Run Ensemble';
+    }
+  });
+}
+
+// History timeline step (used by arrow buttons + keyboard)
+window._historyStep = function(dir) {
+  const newIdx = Math.max(0, Math.min(_historyCycles.length - 1, _historyYearIdx + dir));
+  if (newIdx === _historyYearIdx) return;
+  _historyYearIdx = newIdx;
+  const slider = document.getElementById('timeline-slider');
+  if (slider) slider.value = newIdx;
+  _historyMapLoadData(_historyChamber, _historyCycles[newIdx]);
+  _updateArrowButtons();
+};
+
+function _updateArrowButtons() {
+  const prev = document.getElementById('btn-prev');
+  const next = document.getElementById('btn-next');
+  if (prev) prev.disabled = _historyYearIdx <= 0;
+  if (next) next.disabled = _historyYearIdx >= _historyCycles.length - 1;
+}
+
+// Global keyboard handler for history arrow keys
+document.addEventListener('keydown', e => {
+  if (activeView !== 'history') return;
+  // Ignore when focus is inside an input/select
+  if (['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName)) return;
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); window._historyStep(-1); }
+  if (e.key === 'ArrowRight') { e.preventDefault(); window._historyStep(1);  }
+});
+
+window.selectAlgo = function(key) {
+  selectedAlgo = key;
+  document.querySelectorAll('.algo-card').forEach(c=>c.classList.toggle('selected',c.dataset.algo===key));
+};
+
+function showRunStatus(status, msg) {
+  const badge=document.getElementById('run-status-badge');
+  if (!badge) return;
+  badge.style.display='inline-flex';
+  badge.className=`run-status ${status}`;
+  badge.textContent=(status==='running'?'⏳ ':status==='done'?'✓ ':'✗ ')+msg;
+}
+
+function pollRunStatus(runId, chamber) {
+  if (runPollTimer) clearInterval(runPollTimer);
+  runPollTimer = setInterval(async ()=>{
+    try {
+      const s = await fetchApi(`/api/states/${ACTIVE_STATE}/${chamber}/ensemble/run/${runId}/status`).then(r=>r.json());
+      if (s.status==='done') {
+        clearInterval(runPollTimer);
+        showRunStatus('done',`Complete! ${(s.steps||0).toLocaleString()} steps.`);
+        document.getElementById('run-btn').disabled=false;
+        document.getElementById('run-btn').textContent='▶ Run Ensemble';
+        chamberMetas[chamber]=null; // invalidate cache
+        await refreshRunHistory();
+        const tip=document.createElement('div');
+        tip.className='run-status done'; tip.style.cssText='margin-top:.6rem;display:block;font-size:.8rem';
+        tip.innerHTML=`✓ Done. Switch to <strong>Metrics</strong> or <strong>Map</strong> view to see updated results.`;
+        document.querySelector('.run-panel')?.appendChild(tip);
+      } else if (s.status==='error') {
+        clearInterval(runPollTimer);
+        showRunStatus('error','Run failed. Check server logs.');
+        document.getElementById('run-btn').disabled=false;
+        document.getElementById('run-btn').textContent='▶ Run Ensemble';
+        await refreshRunHistory();
+      }
+    } catch(e){}
+  }, 3000);
+}
+
+async function refreshRunHistory() {
+  const el=document.getElementById('run-history-table');
+  if (!el) return;
+  try {
+    const data=await fetchApi(`/api/ensemble/runs`).then(r=>r.json());
+    const runs=(data.runs||[]).sort((a,b)=>(b.started_at||'')<(a.started_at||'')?-1:1);
+    if (!runs.length){el.innerHTML='<p style="font-size:.83rem;color:var(--gray)">No runs yet.</p>';return;}
+    const rows=runs.map(r=>{
+      const sc=r.status==='done'?'done':r.status==='error'?'error':'running';
+      const icon=r.status==='done'?'✓':r.status==='error'?'✗':'⏳';
+      const dur=r.finished_at&&r.started_at?Math.round((new Date(r.finished_at)-new Date(r.started_at))/1000)+'s':r.status==='running'?'running…':'—';
+      return `<tr>
+        <td><span class="run-status ${sc}" style="padding:.1rem .35rem;font-size:.72rem">${icon} ${r.status}</span></td>
+        <td>${r.chamber}</td><td>${(r.steps||0).toLocaleString()}</td>
+        <td>${((r.epsilon||0)*100).toFixed(0)}%</td>
+        <td>${r.algo||'recom'}</td><td>${dur}</td>
+        <td style="color:var(--gray)">${(r.started_at||'').slice(0,16).replace('T',' ')}</td>
+      </tr>`;
+    }).join('');
+    el.innerHTML=`<div class="run-history"><table>
+      <thead><tr><th>Status</th><th>Chamber</th><th>Steps</th><th>ε</th><th>Algorithm</th><th>Duration</th><th>Started</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+  } catch(e){el.innerHTML='<p style="font-size:.83rem;color:var(--gray)">Could not load history.</p>';}
+}
+
+// ── Sources & Config view ─────────────────────────────────────────────────────
+async function renderSourcesView() {
+  const main=document.getElementById('main');
+  main.innerHTML='<div class="loading">Loading…</div>';
+  if (!infoCache) {
+    try { infoCache=await fetchApi(`/api/info`).then(r=>r.json()); }
+    catch(e){main.innerHTML=`<div class="error">${e.message}</div>`;return;}
+  }
+  const info=infoCache;
+
+  const chamberBlocks=(info.chambers||[]).map(c=>{
+    const ranAt=c.ran_at?c.ran_at.replace('T',' ').slice(0,16):'n/a';
+    const dur=c.runtime_seconds!=null?(c.runtime_seconds<60?`${c.runtime_seconds}s`:`${(c.runtime_seconds/60).toFixed(1)} min`):'n/a';
+    const eps=c.epsilon!=null?`±${(c.epsilon*100).toFixed(0)}%`:'n/a';
+    return `<div class="info-card" style="grid-column:span 2">
+      <h3>📊 ${c.chamber.charAt(0).toUpperCase()+c.chamber.slice(1)} Chamber Run</h3>
+      <table class="run-meta-table">
+        <tr><td>Neutral maps generated</td><td><strong>${(c.steps||0).toLocaleString()}</strong></td></tr>
+        <tr><td>Districts</td><td>${c.num_districts}</td></tr>
+        <tr><td>Ideal pop / district</td><td>${(c.ideal_population||0).toLocaleString(undefined,{maximumFractionDigits:0})}</td></tr>
+        <tr><td>Population tolerance (ε)</td><td>${eps}</td></tr>
+        <tr><td>Algorithm</td><td>${c.algorithm?.name||c.algorithm?.method||'ReCom'}</td></tr>
+        <tr><td>Run completed</td><td>${ranAt}</td></tr>
+        <tr><td>Run duration</td><td>${dur}</td></tr>
+        ${c.data_sources?`<tr><td>Precincts</td><td style="font-size:.78rem">${c.data_sources.precincts}</td></tr>`:''}
+        ${c.data_sources?`<tr><td>Population</td><td style="font-size:.78rem">${c.data_sources.population}</td></tr>`:''}
+        ${c.data_sources?`<tr><td>District file</td><td style="font-size:.78rem">${c.data_sources.districts}</td></tr>`:''}
+        ${c.data_sources?`<tr><td>Election data</td><td style="font-size:.78rem">${c.data_sources.election}</td></tr>`:''}
+      </table>
+    </div>`;
+  }).join('');
+
+  const metrics=info.methodology?.metric_definitions||{};
+  const refs=info.methodology?.references||[];
+
+  main.innerHTML=`<div class="sources-grid">
+    <div class="info-card" style="grid-column:span 2">
+      <h3>📋 About This Analysis</h3>
+      <p>${info.methodology?.summary||''}</p>
+    </div>
+    ${chamberBlocks}
+    <div class="info-card">
+      <h3>📐 Algorithm Details</h3>
+      <ul>
+        <li><strong>Primary method:</strong> ReCom (Recombination)</li>
+        <li><strong>Library:</strong> GerryChain 0.3.x — MGGG Redistricting Lab, Tufts University</li>
+        <li><strong>How ReCom works:</strong> Pick two adjacent districts at random, merge them into one region, then re-split via a random spanning tree of that region</li>
+        <li><strong>Acceptance:</strong> All proposals accepted (random walk — no bias toward or away from any configuration)</li>
+        <li><strong>Population constraint:</strong> Each proposed district must be within ±ε% of the ideal equal-population target</li>
+        <li><strong>Contiguity:</strong> Guaranteed by construction — the spanning tree always produces connected districts</li>
+        <li><strong>Alternative: Reversible ReCom</strong> — uses Metropolis-Hastings acceptance to sample from a known probability distribution; more rigorous but slower. Select on the Run page.</li>
+      </ul>
+    </div>
+    <div class="info-card">
+      <h3>📏 Metric Definitions</h3>
+      <ul>
+        ${Object.entries(metrics).map(([k,v])=>`<li><strong>${k.replace(/_/g,' ')}:</strong> ${v}</li>`).join('')}
+      </ul>
+    </div>
+    <div class="info-card" style="grid-column:span 2">
+      <h3>📚 Data Sources &amp; References</h3>
+      <ul>
+        <li><strong>Redistricting Data Hub</strong> — <a href="https://redistrictingdatahub.org/state/georgia/" target="_blank">redistrictingdatahub.org/state/georgia/</a></li>
+        <li><strong>2020 Census PL 94-171</strong> — Block-level population and race/ethnicity</li>
+        <li><strong>Georgia General Assembly</strong> — 2023 Enacted district shapefiles</li>
+        ${refs.map(r=>`<li>${r}</li>`).join('')}
+      </ul>
+    </div>
+  </div>`;
+}
+
+// ── History / Timeline view ───────────────────────────────────────────────────
+
+let _historyChamber = null;      // which chamber is showing
+let _historyYearIdx = 0;         // current slider index
+let _historyCycles = [];         // [{year, label, event, has_boundaries, has_elections, has_metrics}]
+let _historyMetricsCache = {};   // {`chamber_year`: metricsObj}
+let _historyLoadingYear = null;  // debounce: don't double-load
+let _historyElecCache = {};      // {`chamber_year`: elecObj} for cracking/packing comparison
+
+// Georgia-specific timeline events (beyond redistricting cycles)
+const GA_TIMELINE_EVENTS = [
+  {year:2001, label:"Democrats draw 2001 maps", type:"redistricting"},
+  {year:2002, label:"First elections on 2001 maps", type:"political"},
+  {year:2003, label:"Republicans win GA legislature for first time since Reconstruction", type:"political"},
+  {year:2005, label:"Republicans redraw maps mid-decade", type:"redistricting"},
+  {year:2011, label:"2011 maps drawn — DOJ preclearance required under VRA §5", type:"redistricting"},
+  {year:2013, label:"Shelby County v. Holder: Federal preclearance struck down", type:"legal"},
+  {year:2021, label:"2021 maps drawn — first cycle without federal oversight", type:"redistricting"},
+  {year:2023, label:"Federal court orders some GA districts redrawn (VRA §2)", type:"legal"},
+];
+
+// Color scale: 0% Dem → red, 50% → purple, 100% Dem → blue
+function demPctToColor(pct) {
+  if (pct == null) return '#aaaaaa';
+  // Lerp: red #c0392b → purple #9b59b6 → blue #1a4b8c
+  if (pct <= 0.5) {
+    const t = pct / 0.5;
+    const r = Math.round(192 + (155-192)*t);
+    const g = Math.round(57  + (89 -57 )*t);
+    const b = Math.round(43  + (182-43 )*t);
+    return `rgb(${r},${g},${b})`;
+  } else {
+    const t = (pct - 0.5) / 0.5;
+    const r = Math.round(155 + (26 -155)*t);
+    const g = Math.round(89  + (75 -89 )*t);
+    const b = Math.round(182 + (140-182)*t);
+    return `rgb(${r},${g},${b})`;
+  }
+}
+
+// Merge election data into GeoJSON features by district_id
+function mergeElections(geojson, elections) {
+  if (!elections?.districts) return geojson;
+  const byId = {};
+  for (const d of elections.districts) {
+    byId[String(d.district_id)] = d;
+  }
+  const features = geojson.features.map(f => {
+    const id = String(f.properties?.district_id || f.properties?.DISTRICT ||
+                      f.properties?.NAME || '').replace(/^0+/, '').trim();
+    const elec = byId[id] || null;
+    return {
+      ...f,
+      properties: {
+        ...f.properties,
+        district_id: id,
+        dem_pct:     elec ? elec.dem_pct  : null,
+        dem_votes:   elec ? elec.dem_votes : null,
+        rep_votes:   elec ? elec.rep_votes : null,
+        winner:      elec ? elec.winner    : null,
+        margin:      elec ? elec.margin    : null,
+      }
+    };
+  });
+  return {...geojson, features};
+}
+
+async function renderHistoryView(chamber) {
+  const main = document.getElementById('main');
+
+  _historyChamber = chamber;
+
+  main.innerHTML = `
+    <div class="history-controls">
+      <div class="history-year-badge" id="history-year-badge">
+        <div>
+          <div class="history-year-num" id="history-year-num">…</div>
+          <div class="history-year-event" id="history-year-event">Loading…</div>
+        </div>
+        <div class="history-year-arrows">
+          <button class="history-arrow-btn" id="btn-prev" title="Previous cycle (←)" onclick="_historyStep(-1)">&#8592;</button>
+          <button class="history-arrow-btn" id="btn-next" title="Next cycle (→)" onclick="_historyStep(1)">&#8594;</button>
+        </div>
+      </div>
+
+      <div class="timeline-card" style="flex:1;padding:.65rem .85rem">
+        <h4 style="margin-bottom:.5rem">Redistricting Timeline <span style="font-weight:400;color:var(--gray);font-size:.65rem">← → keys</span></h4>
+        <div class="timeline-track">
+          <input type="range" class="timeline-range" id="timeline-slider" min="0" max="0" value="0" step="1">
+        </div>
+        <div class="timeline-ticks" id="timeline-ticks"></div>
+        <div class="timeline-events" id="timeline-events" style="max-height:130px;overflow-y:auto"></div>
+      </div>
+    </div>
+
+    <div class="history-bottom">
+      <div class="history-stats-card" id="history-stats">
+        <h4>Summary</h4>
+        <div class="loading" style="padding:.4rem 0;font-size:.75rem">Loading…</div>
+      </div>
+      <div class="history-stats-card" id="history-crack-pack">
+        <h4>Cracking &amp; Packing</h4>
+        <div class="loading" style="padding:.4rem 0;font-size:.75rem">Loading…</div>
+      </div>
+      <div class="history-stats-card" id="history-wasted-detail">
+        <h4>Wasted Votes — How It&apos;s Calculated</h4>
+        <div class="loading" style="padding:.4rem 0;font-size:.75rem">Loading…</div>
+      </div>
+    </div>`;
+
+  // Load cycles from API
+  try {
+    const cycles = await fetchApi(`/api/states/${ACTIVE_STATE}/${chamber}/cycles`).then(r => r.json());
+    _historyCycles = cycles;
+    _historyYearIdx = _historyCycles.length - 1; // default: most recent year
+    _buildTimeline(chamber, cycles);
+  } catch(e) {
+    // Fallback: just show 2021 with config from state info
+    _historyCycles = [{year:2021, label:'2021 Redistricting', event:'Post-2020 Census (current)', has_boundaries:false, has_elections:false, has_metrics:false}];
+    _historyYearIdx = 0;
+    _buildTimeline(chamber, _historyCycles);
+  }
+}
+
+
+async function _historyMapLoadData(chamber, cycleObj) {
+  if (!cycleObj) return;
+  const {year, label, event} = cycleObj;
+  if (_historyLoadingYear === year) return;
+  _historyLoadingYear = year;
+
+  // Update year badge
+  const numEl = document.getElementById('history-year-num');
+  const evEl  = document.getElementById('history-year-event');
+  if (numEl) numEl.textContent = year;
+  if (evEl)  evEl.textContent = event || label;
+
+  _updateTimeline(year);
+
+  // Show loading in stats
+  const statsEl = document.getElementById('history-stats');
+  if (statsEl) statsEl.innerHTML = `<h4>Summary</h4><div class="loading" style="padding:.5rem 0;font-size:.8rem">Loading ${year}…</div>`;
+
+  // Find previous cycle year for comparison
+  const cycleIdx = _historyCycles.findIndex(c => c.year === year);
+  const prevYear = cycleIdx > 0 ? _historyCycles[cycleIdx - 1].year : null;
+
+  const [elecResp, metricsResp, prevElecResp] = await Promise.allSettled([
+    _historyElecCache[`${chamber}_${year}`]
+      ? Promise.resolve(_historyElecCache[`${chamber}_${year}`])
+      : fetchApi(`/api/states/${ACTIVE_STATE}/${chamber}/elections/${year}`).then(r => r.ok ? r.json() : null),
+    fetchApi(`/api/states/${ACTIVE_STATE}/${chamber}/metrics/${year}`).then(r => r.ok ? r.json() : null),
+    prevYear && !_historyElecCache[`${chamber}_${prevYear}`]
+      ? fetchApi(`/api/states/${ACTIVE_STATE}/${chamber}/elections/${prevYear}`).then(r => r.ok ? r.json() : null)
+      : Promise.resolve(_historyElecCache[`${chamber}_${prevYear}`] || null),
+  ]);
+
+  const elec     = elecResp.status === 'fulfilled'    ? elecResp.value    : null;
+  const metrics  = metricsResp.status === 'fulfilled' ? metricsResp.value : null;
+  const prevElec = prevElecResp.status === 'fulfilled' ? prevElecResp.value : null;
+
+  // Cache election data for future slider moves
+  if (elec)     _historyElecCache[`${chamber}_${year}`]     = elec;
+  if (prevElec) _historyElecCache[`${chamber}_${prevYear}`] = prevElec;
+
+  _renderHistoryStats(chamber, year, elec, metrics, prevElec, prevYear);
+  _historyLoadingYear = null;
+}
+
+// Compute cracking/packing breakdown from district-level election results
+function _crackPack(districts) {
+  if (!districts?.length) return null;
+  const n = districts.length;
+  // Packed D: D wins by blowout (>65% dem) — those D votes are "wasted"
+  const packedD  = districts.filter(d => d.dem_pct >= 0.65).length;
+  // Cracked D: D loses narrowly (40-49.9%) — classic crack
+  const crackedD = districts.filter(d => d.dem_pct >= 0.40 && d.dem_pct < 0.50).length;
+  // Packed R: R wins by blowout (dem < 35%)
+  const packedR  = districts.filter(d => d.dem_pct < 0.35).length;
+  // Competitive: 45-55%
+  const comp     = districts.filter(d => d.dem_pct >= 0.45 && d.dem_pct < 0.55).length;
+  return {n, packedD, crackedD, packedR, comp};
+}
+
+function _delta(curr, prev, fmt) {
+  if (curr == null || prev == null) return '';
+  const d = curr - prev;
+  if (Math.abs(d) < 0.001) return '<span style="color:var(--gray)"> (=)</span>';
+  const sign = d > 0 ? '+' : '';
+  const cls  = d > 0 ? 'color:var(--red)' : 'color:var(--blue)';
+  return ` <span style="${cls};font-size:.68rem">${sign}${fmt(d)}</span>`;
+}
+
+function _renderHistoryStats(chamber, year, elec, metrics, prevElec, prevYear) {
+  const summaryEl  = document.getElementById('history-stats');
+  const cpEl       = document.getElementById('history-crack-pack');
+  const wastedEl   = document.getElementById('history-wasted-detail');
+
+  const noData = `<div style="font-size:.74rem;color:var(--gray);padding:.3rem 0">No data for ${year}</div>`;
+
+  if (!elec && !metrics) {
+    if (summaryEl) summaryEl.innerHTML = `<h4>Summary</h4>${noData}`;
+    if (cpEl)      cpEl.innerHTML      = `<h4>Cracking &amp; Packing</h4>${noData}`;
+    if (wastedEl)  wastedEl.innerHTML  = `<h4>Wasted Votes</h4>${noData}`;
+    return;
+  }
+
+  const data = metrics || {};
+  const e    = elec    || {};
+  const districts     = data.district_details || e.districts || [];
+  const prevDistricts = prevElec?.district_details || prevElec?.districts || [];
+  const totalVotes    = data.total_votes || e.total_votes || 1;
+
+  const demSeats  = data.dem_seats ?? districts.filter(d=>d.winner==='D').length;
+  const repSeats  = data.rep_seats ?? districts.filter(d=>d.winner==='R').length;
+  const _ds       = data.num_districts != null ? data.num_districts : e.num_districts;
+  const numDist   = _ds != null ? _ds : (demSeats + repSeats) > 0 ? (demSeats + repSeats) : null;
+  const demVotePct = data.dem_vote_share ?? e.dem_vote_share ?? null;
+  const demSeatPct = data.dem_seat_share ?? (numDist ? demSeats/numDist : null);
+  const eg         = data.efficiency_gap ?? null;
+  const mm         = data.mean_median ?? null;
+  const elecYear   = data.election_year ?? e.election_year ?? year;
+  const wastedDPct = data.wasted_dem_pct ?? null;
+  const wastedRPct = data.wasted_rep_pct ?? null;
+
+  const prevData    = _historyMetricsCache[`${chamber}_${prevYear}`] || {};
+  const prevDemVote = prevData.dem_vote_share ?? prevElec?.dem_vote_share ?? null;
+  const prevDemSeat = prevData.dem_seat_share ?? prevElec?.dem_seat_share ?? null;
+  const prevEg      = prevData.efficiency_gap ?? null;
+
+  const egClass = eg == null ? '' : Math.abs(eg) > 0.08 ? 'bad' : Math.abs(eg) > 0.04 ? 'ok' : 'good';
+  const egStr   = eg == null ? '—' : `${eg>0?'+':''}${(eg*100).toFixed(1)}% (${eg>0?'R':'D'} adv.)`;
+  const mmStr   = mm == null ? '—' : `${mm>0?'+':''}${(mm*100).toFixed(1)}%`;
+  const barDem  = demSeatPct != null ? Math.round(demSeatPct*100) : 50;
+  const barRep  = 100 - barDem;
+
+  // ── Panel 1: Summary ────────────────────────────────────────────────────
+  if (summaryEl) summaryEl.innerHTML = `
+    <h4>Summary — ${elecYear}</h4>
+    <div class="seats-votes-bar">
+      <div class="dem-seg" style="width:${barDem}%"></div>
+      <div class="rep-seg" style="width:${barRep}%"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:.63rem;color:var(--gray);margin-bottom:.35rem">
+      <span style="color:var(--blue)">D ${demSeats} (${barDem}%)</span>
+      <span style="color:var(--red)">R ${repSeats} (${barRep}%)</span>
+    </div>
+    <div class="stat-row"><span class="stat-label">D vote share</span>
+      <span class="stat-val dem">${demVotePct!=null?(demVotePct*100).toFixed(1)+'%':'—'}${_delta(demVotePct,prevDemVote,d=>(d*100).toFixed(1)+'%')}</span></div>
+    <div class="stat-row"><span class="stat-label">D seat share</span>
+      <span class="stat-val dem">${demSeatPct!=null?(demSeatPct*100).toFixed(1)+'%':'—'}${_delta(demSeatPct,prevDemSeat,d=>(d*100).toFixed(1)+'%')}</span></div>
+    <div class="stat-row"><span class="stat-label">Efficiency gap</span>
+      <span class="stat-val ${egClass}">${egStr}${_delta(eg,prevEg,d=>(d*100).toFixed(1)+'%')}</span></div>
+    <div class="stat-row"><span class="stat-label">Mean–median</span>
+      <span class="stat-val">${mmStr}</span></div>
+    ${wastedDPct!=null ? `<div class="stat-row"><span class="stat-label">D wasted votes</span>
+      <span class="stat-val bad">${(wastedDPct*100).toFixed(1)}%</span></div>` : ''}
+    ${wastedRPct!=null ? `<div class="stat-row"><span class="stat-label">R wasted votes</span>
+      <span class="stat-val" style="color:var(--amber)">${(wastedRPct*100).toFixed(1)}%</span></div>` : ''}`;
+
+  // ── Panel 2: Cracking & Packing ──────────────────────────────────────────
+  const cp     = _crackPack(districts);
+  const cpPrev = _crackPack(prevDistricts);
+
+  function cpDelta(curr, prev) {
+    if (prev == null || curr == null || !prevYear) return '';
+    const d = curr - prev;
+    if (d === 0) return ' <span style="color:var(--gray)">(=)</span>';
+    const arrow = d > 0 ? '▲' : '▼';
+    const color = d > 0 ? '#b00' : '#2e7d32';
+    return ` <span style="color:${color};font-size:.67rem">${arrow}${Math.abs(d)}</span>`;
+  }
+
+  if (cpEl) cpEl.innerHTML = cp ? `
+    <h4>Cracking &amp; Packing${prevYear ? ` <span style="font-weight:400;color:var(--gray)">vs ${prevYear}</span>` : ''}</h4>
+    <div class="stat-row" title="D loses 40–50%: votes split across many districts"><span class="stat-label">Cracked D</span>
+      <span class="stat-val bad">${cp.crackedD}/${cp.n}${cpDelta(cp.crackedD,cpPrev?.crackedD)}</span></div>
+    <div class="stat-row" title="D wins >65%: D voters concentrated, excess wasted"><span class="stat-label">Packed D</span>
+      <span class="stat-val dem">${cp.packedD}/${cp.n}${cpDelta(cp.packedD,cpPrev?.packedD)}</span></div>
+    <div class="stat-row" title="R wins >65%: opposition excluded"><span class="stat-label">Packed R</span>
+      <span class="stat-val rep">${cp.packedR}/${cp.n}${cpDelta(cp.packedR,cpPrev?.packedR)}</span></div>
+    <div class="stat-row" title="45–55%: genuinely contested"><span class="stat-label">Competitive</span>
+      <span class="stat-val good">${cp.comp}/${cp.n}${cpDelta(cp.comp,cpPrev?.comp)}</span></div>
+    <div style="font-size:.63rem;color:var(--gray);margin-top:.4rem;line-height:1.4">
+      Cracked = D loses 40–50% · Packed D = D&gt;65% · Packed R = D&lt;35%
+    </div>` : `<h4>Cracking &amp; Packing</h4>${noData}`;
+
+  // ── Panel 3: Wasted votes district breakdown ─────────────────────────────
+  if (!wastedEl) return;
+
+  if (!districts.length) {
+    wastedEl.innerHTML = `<h4>Wasted Votes — How It's Calculated</h4>${noData}`;
+    return;
+  }
+
+  // Annotate each district with wasted vote type
+  const annotated = districts.map(d => {
+    const demPct = d.dem_pct;
+    const wD = d.wasted_dem ?? (d.winner === 'R' ? d.dem_votes : Math.max(0, d.dem_votes - Math.floor(d.total_votes/2) - 1));
+    const wR = d.wasted_rep ?? (d.winner === 'D' ? d.rep_votes : Math.max(0, d.rep_votes - Math.floor(d.total_votes/2) - 1));
+    let type;
+    if (d.winner === 'R' && demPct >= 0.40) type = 'cracked-d';
+    else if (d.winner === 'D' && demPct >= 0.65) type = 'packed-d';
+    else if (demPct < 0.35) type = 'packed-r';
+    else type = 'comp';
+    return {...d, wD, wR, type};
+  }).sort((a, b) => b.wD - a.wD);  // sort by D wasted desc
+
+  const typeLabel = {
+    'cracked-d': 'Cracked D',
+    'packed-d':  'Packed D',
+    'packed-r':  'Packed R',
+    'comp':      'Competitive',
+  };
+
+  const totalWastedD = annotated.reduce((s,d) => s + d.wD, 0);
+  const totalWastedR = annotated.reduce((s,d) => s + d.wR, 0);
+
+  const rows = annotated.map(d => {
+    const demBarW  = Math.round(d.dem_pct * 56);
+    const pctAll   = totalVotes > 0 ? (d.wD / totalVotes * 100).toFixed(1) : '—';
+    return `<tr class="${d.type}">
+      <td style="font-weight:700">D${d.district_id}</td>
+      <td>
+        <div class="wasted-bar-wrap">
+          <div class="wasted-bar" style="width:${demBarW}px;max-width:56px;background:${d.dem_pct>=0.5?'var(--blue)':'var(--red)'}"></div>
+        </div>
+        <span style="font-size:.65rem;color:var(--gray)">${(d.dem_pct*100).toFixed(0)}%D</span>
+      </td>
+      <td><span class="wasted-type-badge ${d.type}">${typeLabel[d.type]}</span></td>
+      <td style="color:var(--blue);font-weight:700">${d.wD.toLocaleString()}</td>
+      <td style="font-size:.65rem;color:var(--gray)">${pctAll}% of all</td>
+      <td style="color:var(--red)">${d.wR.toLocaleString()}</td>
+    </tr>`;
+  }).join('');
+
+  wastedEl.innerHTML = `
+    <h4>Wasted Votes — How It's Calculated
+      <span style="font-weight:400;color:var(--gray);font-size:.63rem;margin-left:.3rem">sorted by D wasted ↓</span>
+    </h4>
+    <div style="font-size:.67rem;color:var(--gray);margin-bottom:.4rem;line-height:1.4">
+      <strong>Cracked D:</strong> D loses → <em>all</em> D votes wasted.
+      <strong>Packed D:</strong> D wins big → excess above 50%+1 wasted.
+      Total D wasted: <strong style="color:var(--blue)">${totalWastedD.toLocaleString()}</strong>
+      (${(totalWastedD/totalVotes*100).toFixed(1)}%) ·
+      Total R wasted: <strong style="color:var(--red)">${totalWastedR.toLocaleString()}</strong>
+      (${(totalWastedR/totalVotes*100).toFixed(1)}%)
+    </div>
+    <div style="overflow-y:auto;max-height:160px">
+      <table class="wasted-table">
+        <thead><tr>
+          <th>Dist</th><th>Result</th><th>Type</th>
+          <th>D Wasted</th><th>% All Votes</th><th>R Wasted</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+
+function _buildTimeline(chamber, cycles) {
+  const slider = document.getElementById('timeline-slider');
+  const ticksEl = document.getElementById('timeline-ticks');
+  const eventsEl = document.getElementById('timeline-events');
+  if (!slider || !ticksEl) return;
+
+  slider.min = 0;
+  slider.max = cycles.length - 1;
+  slider.value = _historyYearIdx;
+
+  // Tick marks
+  ticksEl.innerHTML = cycles.map((c, i) => {
+    const cls = [
+      i === _historyYearIdx ? 'active' : '',
+      c.has_boundaries || c.year === 2021 ? 'has-data' : 'no-data',
+    ].filter(Boolean).join(' ');
+    const tip = c.has_boundaries ? '' : ' (not downloaded yet)';
+    return `<div class="timeline-tick ${cls}" data-idx="${i}" title="${c.label}${tip}">
+      <div class="timeline-tick-dot"></div>
+      <div class="timeline-tick-label">${c.year}</div>
+    </div>`;
+  }).join('');
+
+  // Click on tick = jump to year
+  ticksEl.querySelectorAll('.timeline-tick').forEach(el => {
+    el.addEventListener('click', () => {
+      const idx = parseInt(el.dataset.idx);
+      _historyYearIdx = idx;
+      slider.value = idx;
+      _historyMapLoadData(_historyChamber, _historyCycles[idx]);
+    });
+  });
+
+  // Slider drag
+  slider.addEventListener('input', () => {
+    _historyYearIdx = parseInt(slider.value);
+    _historyMapLoadData(_historyChamber, _historyCycles[_historyYearIdx]);
+  });
+
+  // Global events list
+  if (eventsEl) {
+    eventsEl.innerHTML = GA_TIMELINE_EVENTS.map(ev => `
+      <div class="timeline-event-item">
+        <div class="timeline-event-dot ${ev.type}"></div>
+        <span class="timeline-event-year">${ev.year}</span>
+        <span class="timeline-event-text">${ev.label}</span>
+      </div>`).join('');
+  }
+
+  _updateArrowButtons();
+
+  // Kick off loading the initial year
+  if (cycles.length) {
+    _historyMapLoadData(chamber, cycles[_historyYearIdx]);
+  }
+}
+
+function _updateTimeline(selectedYear) {
+  document.querySelectorAll('.timeline-tick').forEach(el => {
+    const idx = parseInt(el.dataset.idx);
+    const isActive = _historyCycles[idx]?.year === selectedYear;
+    el.classList.toggle('active', isActive);
+  });
+}
+
+// ── Nav ───────────────────────────────────────────────────────────────────────
+function renderChamberTabs(available) {
+  const el=document.getElementById('chamber-tabs');
+  const order=['house','senate','congress'];
+  const labels={house:'House (180)',senate:'Senate (56)',congress:'Congressional (14)'};
+  el.innerHTML=order.map(c=>{
+    const avail=available.includes(c);
+    return `<div class="nav-tab ${!avail?'disabled':c===activeChamber?'active':''}" data-chamber="${c}">${labels[c]}</div>`;
+  }).join('');
+  el.querySelectorAll('.nav-tab:not(.disabled)').forEach(tab=>{
+    tab.addEventListener('click',()=>{
+      activeChamber=tab.dataset.chamber;
+      el.querySelectorAll('.nav-tab').forEach(t=>t.classList.toggle('active',t.dataset.chamber===activeChamber));
+      renderActiveView();
+    });
+  });
+}
+
+function renderViewTabs() {
+  document.getElementById('view-tabs').querySelectorAll('.nav-tab').forEach(tab=>{
+    tab.addEventListener('click',()=>{
+      activeView=tab.dataset.view;
+      document.getElementById('view-tabs').querySelectorAll('.nav-tab').forEach(t=>t.classList.toggle('active',t.dataset.view===activeView));
+      renderActiveView();
+    });
+  });
+}
+
+function renderActiveView() {
+  if (activeView !== 'map') {
+    if (leafletMap)       { leafletMap.remove(); leafletMap = null; districtLayer = null; stabilityLayer = null; }
+    if (_mapboxMapTab)    { _mapboxMapTab.remove(); _mapboxMapTab = null; }
+  }
+
+  if (activeView === 'sources') { renderSourcesView(); return; }
+  if (!activeChamber) return;
+  if      (activeView === 'metrics') renderMetrics(activeChamber);
+  else if (activeView === 'history') renderHistoryView(activeChamber);
+  else if (activeView === 'impact')  renderImpactView(activeChamber);
+  else if (activeView === 'map')     renderMapView(activeChamber);
+  else if (activeView === 'run')     renderRunView(activeChamber);
+}
+
+// ── Mapbox token bootstrap ────────────────────────────────────────────────────
+// Priority: already set (CI inject) → /api/config (Modal Secret / .env) → null
+async function initMapboxToken() {
+  if (window.MAPBOX_TOKEN) return;  // already injected by GitHub Actions CI
+  if (IS_STATIC) return;            // no backend to ask — CI inject is the only source
+  try {
+    const cfg = await fetch(`${API_BASE}/api/config`).then(r => r.ok ? r.json() : null);
+    if (cfg?.mapbox_token) window.MAPBOX_TOKEN = cfg.mapbox_token;
+  } catch(e) { /* backend not reachable — history tab will show token notice */ }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  await initMapboxToken();
+  try {
+    const h = await fetchApi(`/health`).then(r => r.json());
+    // Normalize: new API returns ["GA/house",...], static JSON returns ["house",...]
+    const raw = h.chambers_ready || [];
+    availableChambers = raw
+      .filter(c => c.includes('/') ? c.startsWith(ACTIVE_STATE+'/') : true)
+      .map(c => c.includes('/') ? c.split('/')[1] : c);
+  } catch(e) {
+    if (IS_STATIC) {
+      // Static mode: health.json missing or malformed — default to all three chambers
+      availableChambers = ['house', 'senate', 'congress'];
+    } else {
+      document.getElementById('main').innerHTML =
+        `<div class="error">Cannot reach API at <strong>${API_BASE}</strong>.<br>
+         To run locally: <code>cd ~/codebox/fdga-chain && uv run uvicorn api.main:app --port 8001</code><br>
+         For production: deploy the backend to Modal, then set <code>window.API_BASE_OVERRIDE</code>.</div>`;
+      return;
+    }
+  }
+  // Pre-load chamber metadata for pre-populating the run form
+  try {
+    const info = await fetchApi(`/api/info`).then(r=>r.json());
+    (info.chambers||[]).forEach(c => { chamberMetas[c.chamber]=c; });
+  } catch(e){}
+
+  activeChamber=availableChambers.includes('house')?'house':availableChambers[0]||null;
+  renderChamberTabs(availableChambers);
+  renderViewTabs();
+  renderActiveView();
+}
+
+init();
+</script>
+<footer>
+  Fair Districts Georgia · <a href="https://fairdistrictsga.org">fairdistrictsga.org</a> ·
+  Powered by <a href="https://mggg.org/gerrychain/">GerryChain</a> ·
+  Data: <a href="https://redistrictingdatahub.org">Redistricting Data Hub</a>
+</footer>
+</body>
+</html>

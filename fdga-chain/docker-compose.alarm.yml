@@ -1,0 +1,50 @@
+version: "3.9"
+
+# GA House ALARM SMC ensemble — Docker Compose
+#
+# Usage on remote machine:
+#   docker compose -f docker-compose.alarm.yml up --build
+#
+# Override plan count (e.g. quick smoke test with 50 plans/chain):
+#   NSIMS=50 docker compose -f docker-compose.alarm.yml up --build
+#
+# Check logs live:
+#   docker compose -f docker-compose.alarm.yml logs -f alarm
+
+services:
+  alarm:
+    build:
+      context: .
+      dockerfile: Dockerfile.alarm
+    image: fdga-alarm:latest
+    container_name: fdga-alarm-house
+    restart: "no"
+
+    # ── Volumes ───────────────────────────────────────────────────────────────
+    volumes:
+      # House redist_map RDS (read-only — must exist before starting)
+      - ./data/maps:/data/maps:ro
+      # Output directory (read-write — Parquet lands here)
+      - ./data/ensemble:/data/ensemble:rw
+      # Per-chain logs (read-write)
+      - ./data/logs:/data/logs:rw
+
+    # ── Environment overrides ─────────────────────────────────────────────────
+    environment:
+      RUN_NAME:     "${RUN_NAME:-fdga_baseline_benchmarks_2601_house_alarm}"
+      NSIMS:        "${NSIMS:-500}"          # plans per chain; 10 chains → 5,000 total
+      N_CHAINS:     "${N_CHAINS:-10}"
+      MAX_PARALLEL: "${MAX_PARALLEL:-5}"     # run 5 chains at a time (memory safety)
+      POP_TOL:      "${POP_TOL:-0.01}"
+      COMPACTNESS:  "${COMPACTNESS:-1.0}"
+      SEED:         "${SEED:-42}"
+      MAP_RDS:      /data/maps/GA_sh_2020_map.rds
+      OUT_DIR:      /data/ensemble
+
+    # ── Resources ────────────────────────────────────────────────────────────
+    # Uncomment and tune for your VM (optional — Docker default is no limit):
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "20"
+    #       memory: "40g"

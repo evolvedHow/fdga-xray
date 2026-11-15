@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import Section from './Section';
 import FigureTools from './FigureTools';
+import { useSvgPanZoom } from '../lib/useSvgPanZoom';
 import {
   featureBounds,
   fmtInt,
@@ -78,6 +79,9 @@ export default function PrecinctXray({
 
   const W = 700;
   const H = 430;
+
+  // Pan/zoom for precinct dot map
+  const { viewBox: precincViewBox, svgRef: precincRef } = useSvgPanZoom(W, H, 1, 10);
 
   const bounds = useMemo(() => {
     if (!selectedCounty) return featureBounds(countyFeats);
@@ -226,12 +230,14 @@ export default function PrecinctXray({
           background="#f7f6fb"
         />
         <svg
-          viewBox={`0 0 ${W} ${H}`}
+          viewBox={precincViewBox}
+          ref={precincRef}
+          style={{ cursor: 'grab', userSelect: 'none' }}
           role="img"
           aria-label={
             selectedCounty
-              ? `Precinct dot map for ${countyName} County`
-              : 'Statewide precinct dot map of Georgia'
+              ? `Precinct dot map for ${countyName} County. Use mouse wheel to zoom, drag to pan.`
+              : 'Statewide precinct dot map of Georgia. Use mouse wheel to zoom, drag to pan.'
           }
         >
           {countyPaths.map((c) => (

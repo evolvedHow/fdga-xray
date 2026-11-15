@@ -1,0 +1,53 @@
+# =============================================================================
+# docker-compose.yml — fdga-chain local / self-hosted deployment
+#
+# Start API server:
+#   docker compose up
+#
+# Run an ensemble (one-off job):
+#   docker compose run --rm ensemble \
+#     uv run python scripts/run_ensemble.py \
+#       --run-name congress_v1 \
+#       --config /configs/ga_congress_2026_v1.yml
+#
+# For production ensemble runs prefer Modal (see modal_app.py).
+# =============================================================================
+
+services:
+
+  # ── API server ──────────────────────────────────────────────────────────────
+  api:
+    build: .
+    image: fdga-chain:latest
+    container_name: fdga-chain-api
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./data:/app/data                          # dual graphs + ensemble results
+      - ../fdp/configs:/configs:ro                # benchmark YAML files (read-only)
+    environment:
+      - MAPBOX_TOKEN=${MAPBOX_TOKEN}
+      - DATABASE_URL=${DATABASE_URL}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Ensemble runner  (run-once job, not a persistent service) ───────────────
+  # Usage:  docker compose run --rm ensemble \
+  #           uv run python scripts/run_ensemble.py --run-name foo
+  ensemble:
+    build: .
+    image: fdga-chain:latest
+    volumes:
+      - ./data:/app/data
+      - ../fdp/configs:/configs:ro
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+    # No default CMD — you always provide the full run_ensemble.py invocation.
+    # Prevents accidentally running a bare container with no run_name.
+    entrypoint: []
+    profiles:
+      - tools    # not started by default with `docker compose up`
