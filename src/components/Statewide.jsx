@@ -38,14 +38,17 @@ export default function Statewide({ statewide, chamberRow, chamberLabel, year, o
   const gap = selected ? selected.pctSeatsR - selected.pctVotesR : null;
   const favour = gap == null ? null : gap > 0 ? 'Republicans' : 'Democrats';
 
+  const isCertified = year < 2026;
+  const certNote = !isCertified ? ' ⚠️ UNCERTIFIED (pending GA SOS certification)' : '';
+
   return (
     <Section
       id="swing"
       step="01"
-      kicker="Statewide baseline"
-      title="Georgia is a coin-flip that keeps producing landslides"
-      lede="Statewide contests have landed within a few points of 50–50 since 2018. The chamber you picked is decided district by district — and those districts do not always follow the statewide result."
-      footer="Source: fdga/statewide.parquet (two-party vote share, general elections)."
+      kicker={`Statewide baseline — ${year}${certNote}`}
+      title={`Georgia ${year}: How statewide votes translate to district seats`}
+      lede={selected ? `In ${year}, Democrats won ${fmtPct(selected.pctVotesD)} of statewide two-party votes but ${fmtPct(selected.pctSeatsD)} of ${chamberLabel.toLowerCase()} seats. Statewide contests have landed within a few points of 50–50 since 2018, but districts amplify small swings into large seat swings.` : 'Select a year to see results.'}
+      footer={`Source: fdga/statewide.parquet (two-party vote share, general elections).${!isCertified ? ' Note: 2026 results are uncertified.' : ''}`}
     >
       <div className="kpi-row">
         <div className="kpi">
@@ -86,7 +89,7 @@ export default function Statewide({ statewide, chamberRow, chamberLabel, year, o
         <FigureTools
           name={`statewide-swing-${year}`}
           title="Democratic share of the statewide vote"
-          subtitle="Georgia general elections, 2000-2024; the highlighted year is selected above"
+          subtitle="Georgia general elections, 2000-2026; the highlighted year is selected above"
         />
         <figcaption>Democratic share of the two-party vote, statewide contests</figcaption>
         <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Line chart of Democratic two-party vote share in Georgia statewide elections, 2000 to 2024">
