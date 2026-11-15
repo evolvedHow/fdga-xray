@@ -117,17 +117,20 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
   // Pan/zoom for dumbbell chart
   const { viewBox: dumbViewBox, svgRef: dumbRef } = useSvgPanZoom(W, H, 1, 10);
 
+  const isHistoricalData = year !== 2024;
+  const yearNote = isHistoricalData ? ` (Note: this comparison uses 2024 presidential vote data, shown for context even though you're viewing ${year} results)` : '';
+
   return (
     <Section
       id="mapswap"
       step="03"
-      kicker={`The map swap · ${chamberLabel}`}
+      kicker={`The map swap · ${chamberLabel} · 2024 redistricting effect${isHistoricalData ? ' (historical)' : ''}`}
       title={
         lostByD.length && wonByD.length
-          ? `The new map gave Democrats ${wonByD.length} district${wonByD.length === 1 ? '' : 's'} and took ${lostByD.length} away`
-          : 'Same voters, different lines'
+          ? `The 2024 redistricting gave Democrats ${wonByD.length} district${wonByD.length === 1 ? '' : 's'} and took ${lostByD.length} away`
+          : 'The 2024 maps: same voters, different lines'
       }
-      lede={`The 2024 presidential vote, counted twice: under the ${effect.prior.label} and under the ${effect.current.label}. The seat count moves from ${p24.priorSeatsD} to ${p24.currentSeatsD} (${seatWord}), while ${fmtInt(disp.people)} people — ${fmtPct(disp.pct)} of the state — land in a different district.`}
+      lede={`How the 2024 redistricting affected ${chamberLabel.toLowerCase()} by comparing the ${effect.prior.label} to the ${effect.current.label}, using the 2024 presidential vote. The seat count moved from ${p24.priorSeatsD} to ${p24.currentSeatsD} (${seatWord}), while ${fmtInt(disp.people)} people — ${fmtPct(disp.pct)} of the state — landed in a different district.${yearNote}`}
       aside={
         <>
           <p className="aside-title">What the swap did not change</p>
@@ -214,8 +217,8 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
       <figure className="chart">
         <FigureTools
           name={`map-swap-${effect.chamber}`}
-          title={`${effect.label}: each district's 2024 vote under both maps`}
-          subtitle="Every district, sorted by how far the 2024 presidential vote moved when the lines changed"
+          title={`The 2024 redistricting effect on ${effect.label}: each district's 2024 presidential vote under both maps`}
+          subtitle={`Every district, sorted by how far the 2024 presidential vote shifted between the ${effect.prior.label.toLowerCase()} and the ${effect.current.label.toLowerCase()}${isHistoricalData ? ' (shown for context with ' + year + ' results)' : ''}`}
         />
         <figcaption>
           The 2024 presidential vote in every district, under the old lines and the new ones
