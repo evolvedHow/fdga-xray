@@ -7,13 +7,69 @@
 const BUNDLE_URL = `${import.meta.env.BASE_URL}data/story.json`;
 
 /**
+ * Chamber display names, matching the fdex (Georgia Explorer) map-plan
+ * dropdown so the two apps read consistently ("State House", "US Congress").
+ */
+export const CHAMBER_LABELS = {
+  us_house: 'US Congress',
+  state_senate: 'State Senate',
+  state_house: 'State House',
+};
+
+/** Chamber dropdown order, matching fdex: Congress, State Senate, State House. */
+export const CHAMBER_ORDER = ['us_house', 'state_senate', 'state_house'];
+
+/**
+ * Precinct-lean dropdown labels, matching the fdex "Election Results by
+ * precinct" overlay group (e.g. "2024 President — Actual Results (by precinct)").
+ * Keys not listed fall back to the bundle's own label.
+ */
+export const ELECTION_OPTION_LABELS = {
+  composite: 'Partisan Lean, 2018-2024 (avg. of 6 elections, by precinct)',
+  g18: '2018 Governor — Actual Results (by precinct)',
+  p20: '2020 President — Actual Results (by precinct)',
+  r21: '2021 US Senate Runoff — Actual Results (by precinct)',
+  g22: '2022 Governor — Actual Results (by precinct)',
+  s22: '2022 US Senate — Actual Results (by precinct)',
+  p24: '2024 President — Actual Results (by precinct)',
+};
+
+/**
+ * First election year whose results are not yet certified (GA SOS).
+ * Shown as "(unofficial)" in the year dropdown.
+ */
+export const UNOFFICIAL_FROM_YEAR = 2026;
+
+/**
+ * Align the bundle's meta labels/ordering with the fdex dropdown naming.
+ * @param {object} meta story bundle meta
+ * @returns {object} the same meta, relabelled in place
+ */
+export function applyConsistentNaming(meta) {
+  if (!meta) return meta;
+  if (Array.isArray(meta.chambers)) {
+    for (const c of meta.chambers) {
+      if (CHAMBER_LABELS[c.key]) c.label = CHAMBER_LABELS[c.key];
+    }
+    meta.chambers.sort((a, b) => {
+      const ia = CHAMBER_ORDER.indexOf(a.key);
+      const ib = CHAMBER_ORDER.indexOf(b.key);
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    });
+  }
+  return meta;
+}
+
+/**
  * Fetch the pre-built story bundle.
  * @returns {Promise<object>} story bundle
  */
 export async function loadStory() {
   const res = await fetch(BUNDLE_URL);
   if (!res.ok) throw new Error(`Could not load story data (${res.status})`);
-  return res.json();
+  const data = await res.json();
+  applyConsistentNaming(data.meta);
+  return data;
 }
 
 const intFmt = new Intl.NumberFormat('en-US');

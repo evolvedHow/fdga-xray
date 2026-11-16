@@ -83,7 +83,7 @@ export default function Competitiveness({ contests, chamberLabel, year }) {
             {stats.closest.map((c) => (
               <li key={c.district}>
                 <span className="closest-district">
-                  {chamberLabel.includes('U.S.') ? 'CD' : 'District'} {String(Number(c.district))}
+                  {chamberLabel.startsWith('US') ? 'CD' : 'District'} {String(Number(c.district))}
                 </span>
                 <span className="closest-winner">
                   <i style={{ background: PARTY[c.winnerParty] || PARTY.other }} />

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Section from './Section';
 import FigureTools from './FigureTools';
 import { fmtInt, fmtPct, PARTY } from '../lib/data';
@@ -24,6 +24,26 @@ const pts = (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} pts`;
 const PREFIX = { state_house: 'HD', state_senate: 'SD', us_house: 'CD' };
 
 /**
+ * Heatmap colour ramp for the share of a district's population that moved:
+ * pale lavender (0%) → mid lavender (≈35%) → plum (75%+). Absolute scale so
+ * chambers are directly comparable.
+ */
+const HEAT_STOPS = [
+  [241, 238, 247],
+  [185, 167, 201],
+  [125, 49, 105],
+];
+const HEAT_MAX = 0.75;
+
+function heatColor(pct) {
+  const u = Math.max(0, Math.min(1, pct / HEAT_MAX)) * (HEAT_STOPS.length - 1);
+  const i = Math.min(HEAT_STOPS.length - 2, Math.floor(u));
+  const f = u - i;
+  const c = HEAT_STOPS[i].map((s, k) => Math.round(s + (HEAT_STOPS[i + 1][k] - s) * f));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+
+/**
  * Section 3 — how the 2024 map changed the election, holding the voters fixed.
  *
  * The same 2024 presidential votes are counted twice: once under the 2021–23
@@ -47,6 +67,17 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
     () => effect?.signals.find((s) => s.key === 'p24') || effect?.signals[0],
     [effect],
   );
+
+  // Displacement heatmap interaction: cell order, hover tooltip, pinned cell.
+  const [heatSort, setHeatSort] = useState('magnitude');
+  const [heatHover, setHeatHover] = useState(null);
+  const [heatPos, setHeatPos] = useState({ x: 0, y: 0 });
+  const [heatSelected, setHeatSelected] = useState(null);
+  const chamberKey = effect?.chamber;
+  useEffect(() => {
+    setHeatSelected(null);
+    setHeatHover(null);
+  }, [chamberKey]);
 
   if (!effect || !p24) return null;
 
@@ -159,13 +190,24 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
   ];
 
   // ---------------------------------------------------------------- figure 3
+  // Displacement heatmap: one square per district, shaded by the share of its
+  // population the map moved; district number + % are printed in every cell.
+  const cells =
+    heatSort === 'district'
+      ? [...moved].sort((a, b) => Number(a.district) - Number(b.district))
+      : moved;
+  const nCells = cells.length;
+  const cols = nCells >= 100 ? 20 : nCells >= 40 ? 14 : 7;
+  const rows = Math.max(1, Math.ceil(nCells / cols));
   const DW = 1160;
-  const DH = 300;
-  const DM = { top: 52, right: 16, bottom: 32, left: 14 };
-  const dPlotW = DW - DM.left - DM.right;
-  const dPlotH = DH - DM.top - DM.bottom;
-  const slot = dPlotW / Math.max(1, moved.length);
-  const maxMove = Math.max(0.05, ...moved.map((d) => d.displacedPct || 0));
+  const DM = { top: 16, right: 14, bottom: 58, left: 14 };
+  const cellGap = 5;
+  const cell = Math.min(56, (DW - DM.left - DM.right - cellGap * (cols - 1)) / cols);
+  const gridW = cols * cell + (cols - 1) * cellGap;
+  const gridX = DM.left + (DW - DM.left - DM.right - gridW) / 2;
+  const DH = Math.round(DM.top + rows * (cell + cellGap) - cellGap + DM.bottom);
+  const rankOf = new Map(moved.map((d, i) => [Number(d.district), i + 1]));
+  const heatSelectedRow = heatSelected != null ? moved.find((d) => Number(d.district) === heatSelected) : null;
 
   const isHistoricalData = year !== 2024;
   const yearNote = isHistoricalData
@@ -461,82 +503,174 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
         <FigureTools
           name={`map-swap-displacement-${effect.chamber}`}
           title={`${effect.label}: how much of each district's population was moved`}
-          subtitle="Share of each district's residents reassigned to a different district, sorted largest first; tick shows the share population equality required"
+          subtitle="One square per district, shaded by the share of its residents reassigned to a different district"
         />
-        <figcaption>Population moved out of each district, against what equality required</figcaption>
-        <svg
-          viewBox={`0 0 ${DW} ${DH}`}
-          role="img"
-          aria-label="Bar chart of the share of each district's population reassigned, compared with the share required for population equality"
-        >
-          {[0, 0.25, 0.5, 0.75].map((t) => (
-            <g key={t}>
-              <line
-                x1={DM.left}
-                x2={DW - DM.right}
-                y1={DM.top + dPlotH * t}
-                y2={DM.top + dPlotH * t}
-                className="gridline"
+        <figcaption>Population moved out of each district — one square per district</figcaption>
+        <div className="chart-toggle" role="group" aria-label="Heatmap cell order">
+          <span>Squares ordered:</span>
+          <button
+            type="button"
+            className={heatSort === 'magnitude' ? 'is-active' : ''}
+            aria-pressed={heatSort === 'magnitude'}
+            onClick={() => setHeatSort('magnitude')}
+          >
+            Largest first
+          </button>
+          <button
+            type="button"
+            className={heatSort === 'district' ? 'is-active' : ''}
+            aria-pressed={heatSort === 'district'}
+            onClick={() => setHeatSort('district')}
+          >
+            By district number
+          </button>
+          <span className="legend-hint">Hover a square for details · click to pin it below the chart</span>
+        </div>
+        <div className="chart-scroll">
+          <svg
+            viewBox={`0 0 ${DW} ${DH}`}
+            role="img"
+            aria-label={`Heatmap: one square per ${chamberLabel} district, shaded by the share of its population the 2024 map moved to a different district; each square shows the district number and percentage`}
+          >
+            <defs>
+              <linearGradient id={`heat-ramp-${effect.chamber}`} x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stopColor={heatColor(0)} />
+                <stop offset={0.3 / HEAT_MAX} stopColor={heatColor(0.3)} />
+                <stop offset="1" stopColor={heatColor(HEAT_MAX)} />
+              </linearGradient>
+            </defs>
+
+            {cells.map((d, i) => {
+              const pct = d.displacedPct || 0;
+              const cx = gridX + (i % cols) * (cell + cellGap);
+              const cy = DM.top + Math.floor(i / cols) * (cell + cellGap);
+              const dark = pct / HEAT_MAX > 0.55;
+              const isSel = heatSelected === Number(d.district);
+              return (
+                <g
+                  key={d.district}
+                  style={{ cursor: 'pointer' }}
+                  onMouseMove={(e) => {
+                    setHeatHover(d);
+                    const box = e.currentTarget.closest('figure').getBoundingClientRect();
+                    setHeatPos({ x: e.clientX - box.left, y: e.clientY - box.top });
+                  }}
+                  onMouseLeave={() => setHeatHover(null)}
+                  onClick={() => setHeatSelected(isSel ? null : Number(d.district))}
+                >
+                  <title>
+                    {`${dc} ${d.district}: ${fmtPct(pct)} of ${fmtInt(d.pop)} residents moved ` +
+                      `(equality required ${fmtPct(d.requiredPct || 0)})`}
+                  </title>
+                  <rect
+                    x={cx}
+                    y={cy}
+                    width={cell}
+                    height={cell}
+                    rx="5"
+                    fill={heatColor(pct)}
+                    stroke={isSel ? '#6440a4' : pct >= 0.3 ? '#1c1a2b' : 'none'}
+                    strokeWidth={isSel ? 2.4 : pct >= 0.3 ? 1.1 : 0}
+                    strokeOpacity={isSel ? 1 : 0.55}
+                  />
+                  <text
+                    x={cx + cell / 2}
+                    y={cy + cell * 0.44}
+                    textAnchor="middle"
+                    fontSize="11.5"
+                    fontWeight="700"
+                    fill={dark ? '#ffffff' : '#3a3550'}
+                  >
+                    {Number(d.district)}
+                  </text>
+                  <text
+                    x={cx + cell / 2}
+                    y={cy + cell * 0.74}
+                    textAnchor="middle"
+                    fontSize="9.5"
+                    fill={dark ? '#efe9f2' : '#726d89'}
+                  >
+                    {Math.round(pct * 100)}%
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* colour ramp legend */}
+            <g transform={`translate(${DM.left}, ${DH - 38})`}>
+              <rect
+                x="0"
+                y="0"
+                width="220"
+                height="10"
+                rx="5"
+                fill={`url(#heat-ramp-${effect.chamber})`}
+                stroke="#d7d3e3"
+                strokeWidth="0.6"
               />
-              <text x={DW - DM.right} y={DM.top + dPlotH * t - 5} textAnchor="end" className="axis-label">
-                {Math.round((1 - t) * maxMove * 100)}%
+              <text x="0" y="26" className="axis-label">
+                0%
+              </text>
+              <text x={220 * (0.3 / HEAT_MAX)} y="26" textAnchor="middle" className="axis-label">
+                30%
+              </text>
+              <text x="220" y="26" textAnchor="end" className="axis-label">
+                75%+
+              </text>
+              <text x="244" y="9" className="axis-label">
+                share of the district&rsquo;s residents moved to a different district
               </text>
             </g>
-          ))}
+            <g transform={`translate(${DW - DM.right - 210}, ${DH - 40})`}>
+              <rect x="0" y="0" width="14" height="14" rx="3" fill={heatColor(0.35)} stroke="#1c1a2b" strokeWidth="1.1" strokeOpacity="0.55" />
+              <text x="22" y="11" className="axis-label">
+                outlined: 30%+ moved ({heavy} districts)
+              </text>
+            </g>
+          </svg>
+        </div>
 
-          {moved.map((d, i) => {
-            const pct = d.displacedPct || 0;
-            const h = (pct / maxMove) * dPlotH;
-            const bx = DM.left + i * slot;
-            const requiredH = Math.max(0.6, ((d.requiredPct || 0) / maxMove) * dPlotH);
-            return (
-              <g key={d.district}>
-                <title>
-                  {`${dc} ${d.district}: ${(pct * 100).toFixed(1)}% of residents moved to a different district ` +
-                    `(equality required ${((d.requiredPct || 0) * 100).toFixed(1)}%)`}
-                </title>
-                <rect
-                  x={bx}
-                  y={DM.top + dPlotH - h}
-                  width={Math.max(1, slot - 0.8)}
-                  height={Math.max(0.6, h)}
-                  fill={pct >= 0.3 ? '#7d3169' : '#b9a7c9'}
-                />
-                <rect x={bx} y={DM.top + dPlotH - requiredH} width={Math.max(1, slot - 0.8)} height={requiredH} fill="#1c1a2b" opacity="0.55" />
-              </g>
-            );
-          })}
-
-          <line x1={DM.left} x2={DW - DM.right} y1={DM.top + dPlotH} y2={DM.top + dPlotH} className="axis-line" />
-
-          {/* The four largest bars sit within a few points of each other, so
-              per-bar text always collides: mark them with triangles instead
-              and list them in one annotation line above the plot. */}
-          {worst.map((d, i) => {
-            const barX = DM.left + i * slot + slot / 2;
-            const barTopY = DM.top + dPlotH - ((d.displacedPct || 0) / maxMove) * dPlotH;
-            return (
-              <polygon
-                key={`mark-${d.district}`}
-                points={`${barX - 3.4},${barTopY - 6} ${barX + 3.4},${barTopY - 6} ${barX},${barTopY - 1}`}
-                fill="#7d3169"
-              />
-            );
-          })}
-          <text x={DM.left} y={18} className="axis-label" fontSize="11" fontWeight="600" fill="#4c4863">
-            ▴ Four largest: {worst.map((d) => `${dc} ${d.district} (${Math.round((d.displacedPct || 0) * 100)}%)`).join(' · ')}
-          </text>
-          <text x={DW - DM.right} y={DH - 10} textAnchor="end" className="axis-label">
-            {moved.length} districts · dark bar above 30% moved
-          </text>
-        </svg>
+        {heatHover && (
+          <div className="map-tooltip" style={{ left: heatPos.x + 14, top: heatPos.y + 14 }} role="status">
+            <strong>
+              {dc} {heatHover.district}
+            </strong>
+            <span>{fmtPct(heatHover.displacedPct || 0)} of residents moved</span>
+            <span>
+              {fmtInt(Math.round((heatHover.displacedPct || 0) * (heatHover.pop || 0)))} of {fmtInt(heatHover.pop)}{' '}
+              people
+            </span>
+            <em>
+              rank {rankOf.get(Number(heatHover.district))} of {moved.length} · equality required{' '}
+              {fmtPct(heatHover.requiredPct || 0)}
+            </em>
+          </div>
+        )}
       </figure>
 
+      {heatSelectedRow && (
+        <div className="map-selected" role="status">
+          <strong>
+            {dc} {heatSelectedRow.district}
+          </strong>
+          <span>
+            {fmtPct(heatSelectedRow.displacedPct || 0)} of its {fmtInt(heatSelectedRow.pop)} residents —{' '}
+            {fmtInt(Math.round((heatSelectedRow.displacedPct || 0) * heatSelectedRow.pop))} people — were moved to a
+            different district; equalising populations required {fmtPct(heatSelectedRow.requiredPct || 0)}. Rank{' '}
+            {rankOf.get(Number(heatSelectedRow.district))} of {moved.length} by share moved.
+          </span>
+          <button type="button" className="primary-button" onClick={() => setHeatSelected(null)}>
+            Clear
+          </button>
+        </div>
+      )}
+
       <p className="micro-note">
-        {heavy} districts had at least 30% of their residents reassigned; the four largest are marked ▴ and listed
-        above the chart. The black tick on each bar is the share that had to move to equalise population — under 1%
-        almost everywhere. Districts keep their numbers between plans, so “moved” means residents of district{' '}
-        {worst[0]?.district} were handed to a different member.
+        {heavy} of {moved.length} districts had at least 30% of their residents reassigned (outlined squares); the
+        largest was {dc} {worst[0]?.district} at {fmtPct(worst[0]?.displacedPct || 0)}. Hover or click a square to
+        see the population moved and the share that equalising district sizes required — under 1% almost everywhere.
+        Districts keep their numbers between plans, so “moved” means residents of district {worst[0]?.district} were
+        handed to a different member.
       </p>
 
       <div className="law-note">

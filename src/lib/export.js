@@ -216,6 +216,7 @@ export async function exportReportPng({ filename, background = '#e8e6ef' } = {})
           !(
             node instanceof Element &&
             (node.classList?.contains('figure-tools') ||
+              node.classList?.contains('chart-toggle') ||
               node.classList?.contains('card-actions') ||
               node.classList?.contains('map-tooltip') ||
               node.classList?.contains('chart-tooltip'))

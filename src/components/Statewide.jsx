@@ -6,7 +6,7 @@ import { fmtCompact, fmtPct, fmtPts, scaleLinear, PARTY } from '../lib/data';
 const SERIES = [
   { office: 'president', label: 'President', color: '#6440a4' },
   { office: 'governor', label: 'Governor', color: '#1f4bae' },
-  { office: 'us_senate', label: 'U.S. Senate', color: '#7d3169' },
+  { office: 'us_senate', label: 'US Senate', color: '#7d3169' },
 ];
 
 /**
@@ -30,8 +30,10 @@ export default function Statewide({ statewide, chamberRow, chamberLabel, year, o
 
   const series = SERIES.map((s) => ({
     ...s,
+    // The bundle's field is `type` ("general"), not `election_type` — the old
+    // filter matched nothing and rendered an empty chart.
     points: statewide
-      .filter((d) => d.office === s.office && d.election_type === 'general')
+      .filter((d) => d.office === s.office && d.type === 'general')
       .sort((a, b) => a.year - b.year),
   }));
 

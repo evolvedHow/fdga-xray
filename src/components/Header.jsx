@@ -1,10 +1,15 @@
 import React from 'react';
+import { ELECTION_OPTION_LABELS, UNOFFICIAL_FROM_YEAR } from '../lib/data';
 
 /**
  * Sticky masthead: logo, story title, global filters and the flow-layout switch.
  *
  * Every filter here is global — changing it re-renders every section of the
  * story, which is what makes the continuous flow coherent.
+ *
+ * Dropdown names and groupings mirror the fdex (Georgia Explorer) overlay
+ * dropdowns for consistency across the two apps; uncertified election years
+ * are marked "(unofficial)".
  */
 export default function Header({
   meta,
@@ -102,7 +107,7 @@ export default function Header({
           <select value={year} onChange={(e) => onYear(Number(e.target.value))}>
             {years.map((y) => (
               <option key={y} value={y}>
-                {y}
+                {y >= UNOFFICIAL_FROM_YEAR ? `${y} (unofficial)` : y}
               </option>
             ))}
           </select>
@@ -111,11 +116,14 @@ export default function Header({
         <label className="field">
           <span>Precinct lean signal</span>
           <select value={election} onChange={(e) => onElection(e.target.value)}>
-            {elections.map((e) => (
-              <option key={e.key} value={e.key}>
-                {e.label}
-              </option>
-            ))}
+            {/* Grouped + named like the fdex "Election Results by precinct" overlays. */}
+            <optgroup label="Election Results by precinct">
+              {elections.map((e) => (
+                <option key={e.key} value={e.key}>
+                  {ELECTION_OPTION_LABELS[e.key] || e.label}
+                </option>
+              ))}
+            </optgroup>
           </select>
         </label>
 

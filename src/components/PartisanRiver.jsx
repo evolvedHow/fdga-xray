@@ -1,7 +1,10 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Section from './Section';
 import FigureTools from './FigureTools';
 import { fmtInt, fmtPct, PARTY } from '../lib/data';
+
+/** District label per chamber, matching the rest of the story: HD / SD / CD. */
+const PREFIX = { state_house: 'HD', state_senate: 'SD', us_house: 'CD' };
 
 /**
  * Section 03a — Partisan River / Competitive Landscape.
@@ -15,6 +18,15 @@ import { fmtInt, fmtPct, PARTY } from '../lib/data';
 export default function PartisanRiver({ contests, chamber, year, chamberLabel }) {
   const contestList = contests?.[chamber]?.[String(year)] || [];
 
+  // Hover tooltip + click-to-pin interaction state.
+  const [hover, setHover] = useState(null);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const [pinned, setPinned] = useState(null);
+  useEffect(() => {
+    setPinned(null);
+    setHover(null);
+  }, [chamber, year]);
+
   const { districts, uncontested } = useMemo(() => {
     const rows = contestList
       .filter((c) => !c.uncontested && (c.d || 0) + (c.r || 0) > 0)
@@ -25,6 +37,7 @@ export default function PartisanRiver({ contests, chamber, year, chamberLabel })
           id: c.district,
           demShare,
           demWon: demShare > 0.5,
+          winnerParty: c.winnerParty,
           winnerName: c.winnerName,
           margin: c.marginShare,
         };
@@ -46,6 +59,7 @@ export default function PartisanRiver({ contests, chamber, year, chamberLabel })
   }
 
   // Full-width figure; the y domain is the honest 0–100%.
+  const dc = PREFIX[chamber] || 'District';
   const W = 1160;
   const H = 480;
   const M = { top: 30, right: 30, bottom: 56, left: 58 };
@@ -64,6 +78,9 @@ export default function PartisanRiver({ contests, chamber, year, chamberLabel })
   const repWins = districts.length - demWins;
   const inBand = districts.filter((d) => d.demShare >= competitiveMin && d.demShare <= competitiveMax).length;
   const within5 = districts.filter((d) => (d.margin || 0) < 0.05).length;
+
+  const pinnedIdx = districts.findIndex((d) => d.id === pinned);
+  const pinnedD = pinnedIdx >= 0 ? districts[pinnedIdx] : null;
 
   return (
     <Section
@@ -159,13 +176,14 @@ export default function PartisanRiver({ contests, chamber, year, chamberLabel })
               />
             )}
 
-            {/* district dots */}
+            {/* District dots: hover for a tooltip, click to pin the label */}
             {districts.map((d, i) => {
               const inComp = d.demShare >= competitiveMin && d.demShare <= competitiveMax;
+              const isPinned = pinned === d.id;
               return (
                 <g key={d.id}>
                   <title>
-                    {`${chamberLabel} district ${String(Number(d.id))}: ${fmtPct(d.demShare)} Democratic` +
+                    {`${dc} ${String(Number(d.id))}: ${fmtPct(d.demShare)} Democratic` +
                       `${d.winnerName ? ` — ${d.winnerName}` : ''} (${d.demWon ? 'D' : 'R'} win, margin ${fmtPct(d.margin)})`}
                   </title>
                   <circle
@@ -173,13 +191,60 @@ export default function PartisanRiver({ contests, chamber, year, chamberLabel })
                     cy={yScale(d.demShare)}
                     r={inComp ? 5 : 4}
                     fill={d.demWon ? PARTY.D : PARTY.R}
-                    stroke={inComp ? '#7d3169' : '#ffffff'}
+                    stroke={inComp || isPinned ? '#7d3169' : '#ffffff'}
                     strokeWidth={inComp ? 1.6 : 1.2}
                     opacity="0.9"
+                    pointerEvents="none"
+                  />
+                  <circle
+                    cx={xScale(i)}
+                    cy={yScale(d.demShare)}
+                    r="9"
+                    fill="transparent"
+                    pointerEvents="all"
+                    style={{ cursor: 'pointer' }}
+                    onMouseMove={(e) => {
+                      setHover(d);
+                      const box = e.currentTarget.closest('figure').getBoundingClientRect();
+                      setPos({ x: e.clientX - box.left, y: e.clientY - box.top });
+                    }}
+                    onMouseLeave={() => setHover(null)}
+                    onClick={() => setPinned(isPinned ? null : d.id)}
                   />
                 </g>
               );
             })}
+
+            {/* Pinned district: plum ring + permanent label */}
+            {pinnedD && (
+              <g pointerEvents="none">
+                <circle
+                  cx={xScale(pinnedIdx)}
+                  cy={yScale(pinnedD.demShare)}
+                  r="8.5"
+                  fill="none"
+                  stroke="#7d3169"
+                  strokeWidth="1.6"
+                />
+                <text
+                  x={xScale(pinnedIdx)}
+                  y={
+                    yScale(pinnedD.demShare) < M.top + 22
+                      ? yScale(pinnedD.demShare) + 24
+                      : yScale(pinnedD.demShare) - 13
+                  }
+                  textAnchor="middle"
+                  fontSize="11.5"
+                  fontWeight="700"
+                  fill="#7d3169"
+                  stroke="#ffffff"
+                  strokeWidth="3"
+                  paintOrder="stroke"
+                >
+                  {dc} {String(Number(pinnedD.id))}
+                </text>
+              </g>
+            )}
 
             {/* axes */}
             <line x1={M.left} x2={M.left} y1={M.top} y2={M.top + plotH} className="axis-line" />
@@ -195,6 +260,22 @@ export default function PartisanRiver({ contests, chamber, year, chamberLabel })
             </text>
           </svg>
         </div>
+
+        {hover && (
+          <div className="map-tooltip" style={{ left: pos.x + 14, top: pos.y + 14 }} role="status">
+            <strong>
+              {dc} {String(Number(hover.id))}
+            </strong>
+            <span>
+              {fmtPct(hover.demShare)} Democratic · margin {fmtPct(hover.margin)}
+            </span>
+            <em>
+              {hover.winnerParty === 'D' ? 'Democratic' : 'Republican'} win
+              {hover.winnerName ? ` — ${hover.winnerName}` : ''}
+            </em>
+          </div>
+        )}
+
         <div className="legend">
           <span className="legend-item">
             <i style={{ background: PARTY.D, height: 9, width: 9, borderRadius: '50%' }} /> Democratic winner
@@ -206,7 +287,10 @@ export default function PartisanRiver({ contests, chamber, year, chamberLabel })
             <i style={{ background: 'transparent', border: '1.6px solid #7d3169', height: 9, width: 9, borderRadius: '50%' }} />{' '}
             inside the competitive range
           </span>
-          <span className="legend-hint">{fmtInt(uncontested)} uncontested seats are not plotted</span>
+          <span className="legend-hint">
+            Hover a dot for details · click to pin its district label · {fmtInt(uncontested)} uncontested seats not
+            plotted
+          </span>
         </div>
       </figure>
     </Section>

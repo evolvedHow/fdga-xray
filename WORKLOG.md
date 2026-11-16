@@ -1,4 +1,38 @@
 
+## 2026-11-16 (round 2): empty swing chart fix, displacement heatmap, river hover/pin, fdex naming
+
+**Fixed / added** (follow-up to the full-width chart pass):
+
+- **01 The swing was EMPTY since the bundle format changed**: `Statewide.jsx` filtered on
+  `d.election_type === 'general'` but story.json rows carry `type` — no series ever matched,
+  so the line chart rendered axes and legend only. Now `d.type === 'general'`; verified
+  3 series paths + 24 points.
+- **03 displacement bars → heatmap**: one square per district (number + % inside), lavender→plum
+  ramp on an absolute 0–75% scale, 30%+ squares outlined, hover tooltip (people moved, rank,
+  equality-required share), click pins a detail readout below the chart, sort toggle
+  "Largest first / By district number". Senate 8×7 grid, House 20×9, Congress 7×2.
+- **03a river hover/click**: hover any dot for district, winner, share and margin; click pins a
+  plum ring + `HD n` label on the chart (click again unpins). Pin/hover reset on chamber/year change.
+- **fdex (Georgia Explorer) dropdown consistency**: chambers renamed/reordered to
+  `US Congress / State Senate / State House` (`CHAMBER_LABELS`, `CHAMBER_ORDER` in lib/data.js,
+  applied in `loadStory`); precinct-lean options renamed to the fdex overlay style
+  (`Partisan Lean, 2018-2024 (avg. of 6 elections, by precinct)`, `2024 President — Actual
+  Results (by precinct)`, …) under an `Election Results by precinct` optgroup; year dropdown
+  marks uncertified cycles `2026 (unofficial)` (`UNOFFICIAL_FROM_YEAR`); legend "U.S. Senate" →
+  "US Senate"; CD/District prefix check updated for the new chamber label.
+- Prose keeps the short bundle labels (e.g. "2018–2024 composite") — only the dropdowns carry
+  the long fdex names.
+
+**Verified** (headless Chromium, locator-driven): swing chart has data; dropdown labels/groups;
+heatmap hover tooltip (`HD 61 · 70.8% · 42,008 of 59,302 · rank 1 of 180`), click readout + Clear,
+sort toggle (first cell = 1), Senate grid = 56 cells / 23 contested dots / `SD` prefix; river
+tooltip (`HD 19 · 42.7% D · Joseph Gullett`), pin/unpin; 6 chamber×year combos, drill-down,
+mobile 375/768, horizontal layout — 0 overlaps, 0 JS errors; print PDF 17 pages with every
+heatmap cell legible. `npm run build` clean.
+
+**Files changed**: `src/lib/data.js`, `src/lib/export.js`, `src/styles.css`,
+`src/components/{Header,Statewide,MapEffect,PartisanRiver,Competitiveness}.jsx`.
+
 ## 2026-11-16: Full-width charts, explanations below, compressed-graph fixes
 
 **Fixed**: every section reviewed against the rendered report PDF/PNG; graphs no longer
