@@ -101,7 +101,7 @@ export default function CountySwing({
 
   // SVG layout: 159 counties as rows, each with a horizontal arrow
   const W = 800;
-  const rowH = 20;
+  const rowH = 12;
   const H = arrows.length * rowH + 60;
   const M = { top: 40, right: 20, bottom: 40, left: 140 };
   const plotW = W - M.left - M.right;
@@ -150,8 +150,8 @@ export default function CountySwing({
             const x0 = xCenter;
             const x1 = isLeft ? xCenter - arrowLen : xCenter + arrowLen;
 
-            // Arrowhead size
-            const headSize = Math.max(3, arrowLen * 0.1);
+            // Arrowhead size (compressed: smaller minimum and lower scaling)
+            const headSize = Math.max(2, arrowLen * 0.05);
 
             return (
               <g key={arrow.county}>

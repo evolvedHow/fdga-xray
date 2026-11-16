@@ -5,6 +5,7 @@ import SeatsVsVotes from './components/SeatsVsVotes';
 import CountySwing from './components/CountySwing';
 import MapEffect from './components/MapEffect';
 import Benchmark from './components/Benchmark';
+import PartisanRiver from './components/PartisanRiver';
 import CountyMap from './components/CountyMap';
 import Competitiveness from './components/Competitiveness';
 import PrecinctXray from './components/PrecinctXray';
@@ -323,6 +324,12 @@ export default function App() {
           year={year}
         />
 
+        <PartisanRiver
+          contests={story.contests}
+          chamber={chamberMeta.key}
+          year={year}
+          chamberLabel={chamberMeta.label}
+        />
         <Benchmark ensemble={story.ensemble?.[chamberMeta.key]} chamberLabel={chamberMeta.label} />
 
         <CountyMap
