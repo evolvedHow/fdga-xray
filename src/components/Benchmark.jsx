@@ -47,6 +47,141 @@ const GROUP_LABEL = {
   safe: 'Safe seats',
 };
 
+/** Format a metric range endpoint for the table, honouring its unit. */
+function fmtRange(metric, lo, hi) {
+  if (lo == null) return '—';
+  const one = (v) => {
+    if (metric.unit === 'seats') return String(Math.round(v));
+    if (metric.unit === 'points') return `${(v * 100).toFixed(1)} pt`;
+    return `${(v * 100).toFixed(1)}%`;
+  };
+  if (hi == null) return `${one(lo)}+`;
+  if (Math.abs(hi - lo) < 1e-9) return one(lo);
+  return `${one(lo)} – ${one(hi)}`;
+}
+
+/**
+ * One benchmark histogram: the neutral distribution of a single metric, with the
+ * middle-90% band shaded, the median dashed, the enacted map marked, and the
+ * scorecard's "A" band drawn under the axis.
+ *
+ * This is the app's version of the FDGA/PGP "range of Democratic seats" and
+ * "range of competitive seats" slides: 98% range, "A" grade range, enacted map.
+ */
+function HistFigure({ metric, ensemble, chamberLabel, caption, note }) {
+  const counts = metric?.hist?.counts || [];
+  if (!metric || !counts.length) return null;
+
+  const W = 1160;
+  const H = 262;
+  const M = { top: 40, right: 26, bottom: 58, left: 56 };
+  const plotW = W - M.left - M.right;
+  const plotH = H - M.top - M.bottom;
+  const edges = metric.hist.edges || [];
+  const h0 = edges[0] ?? 0;
+  const h1 = edges[edges.length - 1] ?? 1;
+  const hx = (v) => M.left + ((v - h0) / (h1 - h0 || 1)) * plotW;
+  const peak = Math.max(0.0001, ...counts);
+  const yMax = peak * 1.18;
+  const base = M.top + plotH;
+  const tickStep = h1 - h0 <= 9 ? 1 : 2;
+  const ticks = [];
+  for (let v = Math.ceil(h0); v <= Math.floor(h1); v += tickStep) ticks.push(v);
+  const outside = isOutside(metric);
+  const aLo = metric.aGradeLo;
+  const aHi = metric.aGradeHi != null ? metric.aGradeHi : Math.max(metric.p95 ?? 0, metric.aGradeLo ?? 0);
+
+  return (
+    <figure className="chart">
+      <FigureTools
+        name={`benchmark-${metric.key}-${ensemble.chamber}`}
+        title={`${chamberLabel}: ${metric.label} against the neutral range`}
+        subtitle={`Distribution across ${fmtInt(ensemble.run.draws)} neutral maps, with the enacted map and the scorecard's "A" band`}
+      />
+      <figcaption>{caption}</figcaption>
+      <div className="chart-scroll">
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          role="img"
+          aria-label={`Histogram of ${metric.label} across ${ensemble.run.draws} neutral maps, with the enacted ${chamberLabel} map marked and the A-grade band shown`}
+        >
+          <rect
+            x={hx(metric.p5)}
+            y={M.top - 10}
+            width={Math.max(0, hx(metric.p95) - hx(metric.p5))}
+            height={plotH + 10}
+            fill="#6440a4"
+            opacity="0.07"
+          />
+
+          {[0, 0.5, 1].map((t) => (
+            <g key={t}>
+              <line x1={M.left} x2={W - M.right} y1={base - plotH * t} y2={base - plotH * t} className="gridline" />
+              <text x={M.left - 8} y={base - plotH * t + 3} textAnchor="end" className="axis-label">
+                {Math.round(yMax * t * 100)}%
+              </text>
+            </g>
+          ))}
+
+          {counts.map((c, i) => {
+            const x0 = hx(edges[i]);
+            const x1 = hx(edges[i + 1]);
+            const h = Math.max(0.8, (c / yMax) * plotH);
+            return (
+              <rect
+                key={`bar-${i}`}
+                x={x0 + 0.4}
+                y={base - h}
+                width={Math.max(0.8, x1 - x0 - 0.8)}
+                height={h}
+                fill={edges[i + 1] <= metric.p50 ? '#a996c6' : '#c8bcdd'}
+              />
+            );
+          })}
+
+          <line x1={hx(metric.p50)} x2={hx(metric.p50)} y1={M.top - 10} y2={base} stroke="#4c4863" strokeWidth="1.2" strokeDasharray="4 3" />
+          <line x1={hx(metric.enacted)} x2={hx(metric.enacted)} y1={M.top - 10} y2={base} stroke="#7d3169" strokeWidth="2" />
+          <circle cx={hx(metric.enacted)} cy={M.top - 10} r="4" fill="#7d3169" />
+          <text
+            x={Math.min(W - M.right - 4, Math.max(M.left + 4, hx(metric.enacted)))}
+            y={M.top - 16}
+            textAnchor="middle"
+            className="bench-value is-strong"
+          >
+            enacted {metric.unit === 'seats' ? Math.round(metric.enacted) : `${(metric.enacted * 100).toFixed(1)}%`}
+          </text>
+
+          {/* the scorecard's "A" band, under the axis */}
+          {aLo != null && (
+            <g>
+              <rect x={hx(aLo)} y={base + 6} width={Math.max(2, hx(aHi) - hx(aLo))} height="7" rx="2.5" fill="#7d3169" opacity="0.55" />
+              <text x={hx(aLo)} y={base + 26} className="axis-label">
+                &ldquo;A&rdquo; grade {fmtRange(metric, aLo, metric.aGradeHi)}
+              </text>
+            </g>
+          )}
+
+          <line x1={M.left} x2={W - M.right} y1={base} y2={base} className="axis-line" />
+          {ticks.map((v) => (
+            <text key={`tick-${v}`} x={hx(v)} y={base + 15} textAnchor="middle" className="axis-label">
+              {v}
+            </text>
+          ))}
+          <text x={M.left} y={H - 6} className="axis-label">
+            {metric.unit === 'seats' ? 'districts' : 'share'} · shaded band = middle 90% of neutral maps (
+            {metric.unit === 'seats' ? `${Math.round(metric.p5)}–${Math.round(metric.p95)}` : `${(metric.p5 * 100).toFixed(1)}–${(metric.p95 * 100).toFixed(1)}%`}
+            ), dashed line = their median
+          </text>
+        </svg>
+      </div>
+      <p className="micro-note">
+        {note} The enacted map scores {fmtValue(metric, metric.enacted)}, at the {ordinal(metric.pctRank)} percentile
+        of neutral maps{outside ? ' — outside the middle 90%.' : '.'}
+      </p>
+    </figure>
+  );
+}
+
 /**
  * Section 4 — the neutral-ensemble benchmark.
  *
@@ -65,6 +200,7 @@ export default function Benchmark({ ensemble, chamberLabel }) {
     [metrics],
   );
   const outside = useMemo(() => metrics.filter(isOutside), [metrics]);
+  const demSeats = metrics.find((m) => m.key === 'dem_seats') || null;
   const demSafe = metrics.find((m) => m.key === 'dem_safe_seats');
   const repSafe = metrics.find((m) => m.key === 'rep_safe_seats');
 
@@ -85,26 +221,6 @@ export default function Benchmark({ ensemble, chamberLabel }) {
   const H = M.top + metrics.length * rowH + M.bottom;
   const x = (pct) => M.left + (Math.max(0, Math.min(100, pct)) / 100) * plotW;
   const baseline = H - M.bottom;
-
-  // ------------------------------------------------------- competitiveness histogram
-  const HIST_W = 1160;
-  const HIST_H = 250;
-  const HM = { top: 38, right: 26, bottom: 42, left: 56 };
-  const histW = HIST_W - HM.left - HM.right;
-  const histH = HIST_H - HM.top - HM.bottom;
-  const hist = comp?.hist;
-  const edges = hist?.edges || [];
-  const counts = hist?.counts || [];
-  const h0 = edges[0] ?? 0;
-  const h1 = edges[edges.length - 1] ?? 1;
-  const hx = (v) => HM.left + ((v - h0) / (h1 - h0 || 1)) * histW;
-  const peak = Math.max(0.0001, ...counts);
-  const yMax = peak * 1.18;
-  const hy = (c) => baselineH() - (c / yMax) * histH;
-  function baselineH() {
-    return HM.top + histH;
-  }
-  const tickStep = h1 - h0 <= 9 ? 1 : 2;
 
   const title =
     outside.length === 0
@@ -383,130 +499,71 @@ export default function Benchmark({ ensemble, chamberLabel }) {
         inherently partisan — read the label to see which way the test runs.
       </p>
 
-      {comp && counts.length > 0 && (
-        <figure className="chart">
-          <FigureTools
-            name={`benchmark-competition-${ensemble.chamber}`}
-            title={`${chamberLabel}: competitive seats against the neutral range`}
-            subtitle={`Number of ${chamberLabel} districts decided by under 10 points, across ${fmtInt(run.draws)} neutral maps; the enacted map is marked`}
-          />
-          <figcaption>
-            Seats decided by under 10 points: the neutral range and the enacted map
-          </figcaption>
-          <div className="chart-scroll">
-          <svg
-            viewBox={`0 0 ${HIST_W} ${HIST_H}`}
-            role="img"
-            aria-label={`Histogram of competitive seat counts across neutral maps, with the enacted ${chamberLabel} map marked`}
-          >
-            <rect
-              x={hx(comp.p5)}
-              y={HM.top - 8}
-              width={Math.max(0, hx(comp.p95) - hx(comp.p5))}
-              height={histH + 8}
-              fill="#6440a4"
-              opacity="0.07"
-            />
+      <HistFigure
+        metric={comp}
+        ensemble={ensemble}
+        chamberLabel={chamberLabel}
+        caption="Seats decided by under 10 points: the neutral range, the “A” band and the enacted map"
+        note="A neutral process keeps more seats competitive than this map does in most, though not all, chambers."
+      />
 
-            {[0, 0.5, 1].map((t) => (
-              <g key={t}>
-                <line
-                  x1={HM.left}
-                  x2={HIST_W - HM.right}
-                  y1={baselineH() - histH * t}
-                  y2={baselineH() - histH * t}
-                  className="gridline"
-                />
-                <text
-                  x={HM.left - 8}
-                  y={baselineH() - histH * t + 3}
-                  textAnchor="end"
-                  className="axis-label"
-                >
-                  {Math.round(yMax * t * 100)}%
-                </text>
-              </g>
-            ))}
+      <HistFigure
+        metric={demSeats}
+        ensemble={ensemble}
+        chamberLabel={chamberLabel}
+        caption="Seats leaning Democratic: the neutral range, the “A” band and the enacted map"
+        note="This is a measuring stick for seat–vote proportionality, not a target: the question is whether the enacted map sits where geography alone would put it."
+      />
 
-            {counts.map((c, i) => {
-              const x0 = hx(edges[i]);
-              const x1 = hx(edges[i + 1]);
-              const h = Math.max(0.8, (c / yMax) * histH);
-              return (
-                <rect
-                  key={`bar-${i}`}
-                  x={x0 + 0.4}
-                  y={baselineH() - h}
-                  width={Math.max(0.8, x1 - x0 - 0.8)}
-                  height={h}
-                  fill={edges[i + 1] <= comp.p50 ? '#a996c6' : '#c8bcdd'}
-                />
-              );
-            })}
-
-            <line
-              x1={hx(comp.p50)}
-              x2={hx(comp.p50)}
-              y1={HM.top - 8}
-              y2={baselineH()}
-              stroke="#4c4863"
-              strokeWidth="1.2"
-              strokeDasharray="4 3"
-            />
-            <line
-              x1={hx(comp.enacted)}
-              x2={hx(comp.enacted)}
-              y1={HM.top - 8}
-              y2={baselineH()}
-              stroke="#7d3169"
-              strokeWidth="2"
-            />
-            <circle cx={hx(comp.enacted)} cy={HM.top - 8} r="4" fill="#7d3169" />
-            <text
-              x={Math.min(HIST_W - HM.right - 4, Math.max(HM.left + 4, hx(comp.enacted)))}
-              y={HM.top - 14}
-              textAnchor="middle"
-              className="bench-value is-strong"
-            >
-              enacted {Math.round(comp.enacted)}
-            </text>
-
-            <line
-              x1={HM.left}
-              x2={HIST_W - HM.right}
-              y1={baselineH()}
-              y2={baselineH()}
-              className="axis-line"
-            />
-            {(() => {
-              const ticks = [];
-              for (let v = Math.ceil(h0); v <= Math.floor(h1); v += tickStep) ticks.push(v);
-              return ticks.map((v) => (
-                <text
-                  key={`tick-${v}`}
-                  x={hx(v)}
-                  y={baselineH() + 15}
-                  textAnchor="middle"
-                  className="axis-label"
-                >
-                  {v}
-                </text>
-              ));
-            })()}
-            <text x={HM.left} y={HIST_H - 6} className="axis-label">
-              districts decided by under 10 points
-            </text>
-          </svg>
-          </div>
-          <p className="micro-note">
-            Shaded band: the middle 90% of neutral maps. Dashed line: their median ({Math.round(
-              comp.p50,
-            )}). Solid line: the enacted map ({Math.round(comp.enacted)}), at the{' '}
-            {ordinal(comp.pctRank)} percentile. A neutral process keeps more seats competitive than
-            this map does{compOutside ? '' : ' in most, though not all, chambers'}.
-          </p>
-        </figure>
+      {gradeList.length > 0 && (
+        <div className="table-scroll">
+          <table className="metric-table">
+            <caption>Every fairness test, side by side — the enacted map against both benchmark ranges</caption>
+            <thead>
+              <tr>
+                <th scope="col">Metric</th>
+                <th scope="col" className="num">Enacted map</th>
+                <th scope="col" className="num">Neutral range (5th–95th)</th>
+                <th scope="col" className="num">“A” grade band</th>
+                <th scope="col" className="num">Percentile</th>
+                <th scope="col">Grade</th>
+                <th scope="col">What it measures</th>
+              </tr>
+            </thead>
+            <tbody>
+              {metrics.map((m) => (
+                <tr key={m.key} className={isOutside(m) ? 'is-outside' : ''}>
+                  <th scope="row">
+                    {m.label}
+                    <span className="metric-note">{GROUP_LABEL[m.group] || m.group}</span>
+                  </th>
+                  <td className="num">{fmtValue(m, m.enacted)}</td>
+                  <td className="num">{fmtRange(m, m.p5, m.p95)}</td>
+                  <td className="num">{fmtRange(m, m.aGradeLo, m.aGradeHi)}</td>
+                  <td className="num">{ordinal(m.pctRank)}</td>
+                  <td>
+                    <b className="grade-chip" style={{ background: GRADE_FILL[m.grade] || '#8b6fc4' }}>
+                      {m.grade || '–'}
+                    </b>
+                  </td>
+                  <td>
+                    {m.note}
+                    {m.takeaway && <span className="metric-note">{m.takeaway}</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
+
+      <p className="micro-note">
+        Two benchmark ranges are shown for every test, exactly as the 2022 FDGA / Princeton
+        Gerrymandering Project evaluation did: the range the neutral ensemble actually produces
+        (5th–95th percentile of {fmtInt(run.draws)} maps), and the narrower band a plan must land in
+        to earn the scorecard&rsquo;s top grade. Landing inside the first but outside the second is
+        the usual result — it means the map is not an outlier, but it is not best practice either.
+      </p>
 
       <div className="law-note">
         <p>

@@ -196,6 +196,130 @@ export function featureBounds(features) {
   return [x0, y0, x1, y1];
 }
 
+/**
+ * County-swing comparisons: for each office, the prior cycle each election year
+ * is measured against (e.g. the 2024 president compares with 2020).
+ *
+ * Chamber races are every two years, so both the presidential-cycle years and
+ * the midterms get a like-for-like pair four years back; that keeps every
+ * selectable year comparable instead of leaving midterms without a baseline.
+ */
+export const COUNTY_COMPARISONS = {
+  president: { 2020: 2024, 2016: 2020, 2012: 2016, 2008: 2012, 2004: 2008, 2000: 2004 },
+  governor: { 2018: 2022, 2014: 2018, 2010: 2014, 2006: 2010, 2002: 2006 },
+  us_house: {
+    2022: 2026, 2020: 2024, 2018: 2022, 2016: 2020, 2014: 2018, 2012: 2016,
+    2010: 2014, 2008: 2012, 2006: 2010, 2004: 2008, 2002: 2006, 2000: 2004,
+  },
+  us_senate: { 2020: 2024, 2016: 2020, 2012: 2016, 2008: 2012, 2004: 2008, 2000: 2004 },
+  state_house: {
+    2022: 2026, 2020: 2024, 2018: 2022, 2016: 2020, 2014: 2018, 2012: 2016,
+    2010: 2014, 2008: 2012, 2006: 2010, 2004: 2008, 2002: 2006, 2000: 2004,
+  },
+  state_senate: {
+    2022: 2026, 2020: 2024, 2018: 2022, 2016: 2020, 2014: 2018, 2012: 2016,
+    2010: 2014, 2008: 2012, 2006: 2010, 2004: 2008, 2002: 2006, 2000: 2004,
+  },
+};
+
+/**
+ * Resolve the prior/current pair for a county-swing comparison.
+ * @param {string} electionKey office key, e.g. "state_house"
+ * @param {number} year currently selected election year
+ * @returns {{prev:number, curr:number}|null} the pair, or null when the office
+ *   or year has no previous cycle to compare against
+ */
+export function resolveCountyComparison(electionKey, year) {
+  const comp = COUNTY_COMPARISONS[electionKey];
+  if (!comp) return null;
+  const prevYear = Object.keys(comp).find((prev) => Number(comp[prev]) === Number(year));
+  if (!prevYear) return null;
+  return { prev: Number(prevYear), curr: Number(year) };
+}
+
+/**
+ * Two-party Democratic share of one county's votes.
+ *
+ * Computed as d/(d+r) rather than taken from the bundle's `pctD` (which is a
+ * share of *all* votes): cycles where third-party or write-in votes are large
+ * would otherwise read as a collapse in Democratic support. This matches the
+ * definition used by the district-level charts.
+ * @param {{d:number, r:number, pctD?:number}} row county vote totals
+ * @returns {number|null} Democratic two-party share, or null when there are no
+ *   major-party votes to compare
+ */
+export function twoPartyDem(row) {
+  if (!row) return null;
+  const major = (row.d || 0) + (row.r || 0);
+  if (major > 0) return row.d / major;
+  return row.pctD != null ? row.pctD : null;
+}
+
+/**
+ * Per-county Democratic-share shift between two cycles of one office.
+ * @param {object} countyVotes bundle `county_votes`, keyed office → year → county
+ * @param {string} electionKey office key
+ * @param {{prev:number, curr:number}} comparison resolved year pair
+ * @returns {Array<{county:string, name:string, shift:number, prevPct:number,
+ *   currPct:number, flipped:boolean, prevVotes:number, currVotes:number}>}
+ *   every county present in both cycles, sorted by |shift|, largest first
+ */
+export function countyShifts(countyVotes, electionKey, comparison) {
+  const votes = countyVotes?.[electionKey];
+  if (!votes || !comparison) return [];
+  const prev = votes[String(comparison.prev)];
+  const curr = votes[String(comparison.curr)];
+  if (!prev || !curr) return [];
+
+  const out = [];
+  for (const county of Object.keys(curr)) {
+    const p = prev[county];
+    const c = curr[county];
+    if (!p || !c) continue;
+    const prevPct = twoPartyDem(p);
+    const currPct = twoPartyDem(c);
+    if (prevPct == null || currPct == null) continue;
+    out.push({
+      county,
+      name: titleCaseCounty(county),
+      shift: currPct - prevPct, // positive = Democratic gain, in shares
+      prevPct,
+      currPct,
+      flipped: prevPct > 0.5 !== currPct > 0.5,
+      prevVotes: p.total || 0,
+      currVotes: c.total || 0,
+    });
+  }
+  out.sort((a, b) => Math.abs(b.shift) - Math.abs(a.shift));
+  return out;
+}
+
+/**
+ * Render an uppercase county key from the vote tables as display text.
+ * @param {string} county e.g. "BEN HILL"
+ * @returns {string} e.g. "Ben Hill"
+ */
+export function titleCaseCounty(county) {
+  return String(county)
+    .toLowerCase()
+    .split(' ')
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(' ');
+}
+
+/**
+ * Smallest "nice" shading cap at or above a value, so a colour ramp saturates
+ * on a round number rather than on one extreme county.
+ * @param {number} v reference magnitude (percentage points)
+ * @returns {number} a round cap in percentage points
+ */
+export function niceCap(v) {
+  for (const c of [1, 2, 3, 5, 7.5, 10, 15, 20, 25, 30, 40, 50, 75, 100]) {
+    if (v <= c) return c;
+  }
+  return Math.ceil(v / 25) * 25;
+}
+
 /** Finds the closest year key present in an object of {year: value}. */
 export function nearestKey(obj, year) {
   const keys = Object.keys(obj)

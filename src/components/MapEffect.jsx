@@ -25,8 +25,8 @@ const PREFIX = { state_house: 'HD', state_senate: 'SD', us_house: 'CD' };
 
 /**
  * Heatmap colour ramp for the share of a district's population that moved:
- * pale lavender (0%) → mid lavender (≈35%) → plum (75%+). Absolute scale so
- * chambers are directly comparable.
+ * pale lavender (0%) → mid lavender → plum at the scale maximum. The scale is
+ * set per metric so each of the three views uses its full range.
  */
 const HEAT_STOPS = [
   [241, 238, 247],
@@ -35,8 +35,46 @@ const HEAT_STOPS = [
 ];
 const HEAT_MAX = 0.75;
 
-function heatColor(pct) {
-  const u = Math.max(0, Math.min(1, pct / HEAT_MAX)) * (HEAT_STOPS.length - 1);
+/**
+ * What one heatmap square encodes: the population the map moved out of each
+ * district, and the movement equal populations actually required — the two
+ * series of the district-cores chart FDGA and the Princeton Gerrymandering
+ * Project publish. (The plans' inbound-population data does not reconcile, so
+ * "moved in" is deliberately not shown.)
+ */
+const HEAT_METRICS = [
+  {
+    key: 'out',
+    label: 'Moved out',
+    field: 'displacedPct',
+    caption: 'Population moved out of each district — one square per district',
+    legend: 'share of the district’s residents moved to a different district',
+  },
+  {
+    key: 'required',
+    label: 'Required',
+    field: 'requiredPct',
+    caption: 'Movement equal populations required — one square per district',
+    legend: 'share of residents that equalising district populations forced the map to move',
+  },
+];
+
+/** Smallest round share at or above a value, for the heatmap colour scale. */
+function niceMaxShare(v) {
+  for (const c of [0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1]) {
+    if (v <= c) return c;
+  }
+  return 1;
+}
+
+/**
+ * Heatmap fill for one square.
+ * @param {number} pct the share being encoded (0–1)
+ * @param {number} max scale maximum at which the ramp reaches full plum
+ * @returns {string} CSS rgb() colour
+ */
+function heatColor(pct, max = HEAT_MAX) {
+  const u = Math.max(0, Math.min(1, pct / (max || HEAT_MAX))) * (HEAT_STOPS.length - 1);
   const i = Math.min(HEAT_STOPS.length - 2, Math.floor(u));
   const f = u - i;
   const c = HEAT_STOPS[i].map((s, k) => Math.round(s + (HEAT_STOPS[i + 1][k] - s) * f));
@@ -57,7 +95,7 @@ function heatColor(pct) {
  * stem's length is the shift the map produced. Flips and the largest movers are
  * labelled with greedy collision avoidance.
  */
-export default function MapEffect({ effect, sources, chamberLabel, year }) {
+export default function MapEffect({ effect, sources, chamberLabel, year, contests, chamber, pairControl }) {
   const districts = useMemo(
     () => (effect ? [...effect.districts].sort((a, b) => b.shiftPts - a.shiftPts) : []),
     [effect],
@@ -68,16 +106,65 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
     [effect],
   );
 
-  // Displacement heatmap interaction: cell order, hover tooltip, pinned cell.
+  /**
+   * Incumbents when the new map was drawn: the winners of the last election
+   * fought under the prior lines, joined to how each district's lean moved.
+   * This is the "incumbent drawn into the other party's district" table from
+   * FDGA's 2022 evaluation, recomputed for the 2024 remedial maps.
+   */
+  const incumbentYear = useMemo(() => {
+    const years = Object.keys(contests?.[chamber] || {})
+      .map(Number)
+      .filter((y) => Number.isFinite(y) && y < 2024);
+    return years.length ? Math.max(...years) : null;
+  }, [contests, chamber]);
+
+  const incumbentRows = useMemo(() => {
+    if (!incumbentYear || !effect) return [];
+    const byDistrict = new Map(
+      (contests[chamber][String(incumbentYear)] || []).map((c) => [Number(c.district), c]),
+    );
+    return effect.districts
+      .map((d) => {
+        const c = byDistrict.get(Number(d.district));
+        if (!c || !c.winnerName) return null;
+        return {
+          district: d.district,
+          name: c.winnerName,
+          party: c.winnerParty,
+          priorPct: d.priorPct,
+          currentPct: d.currentPct,
+          shiftPts: d.shiftPts,
+          crossed: d.priorPct > 0.5 !== d.currentPct > 0.5,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.shiftPts - b.shiftPts);
+  }, [incumbentYear, contests, chamber, effect]);
+
+  /** Districts furthest from a tie under the new lines: the "packed" seats. */
+  const extremeDistricts = useMemo(
+    () =>
+      effect
+        ? [...effect.districts]
+            .sort((a, b) => Math.abs(b.currentPct - 0.5) - Math.abs(a.currentPct - 0.5))
+            .slice(0, 5)
+        : [],
+    [effect],
+  );
+
+  // Displacement heatmap interaction: encoded metric, cell order, hover, pin.
+  const [heatMetric, setHeatMetric] = useState('out');
   const [heatSort, setHeatSort] = useState('magnitude');
   const [heatHover, setHeatHover] = useState(null);
   const [heatPos, setHeatPos] = useState({ x: 0, y: 0 });
   const [heatSelected, setHeatSelected] = useState(null);
   const chamberKey = effect?.chamber;
+  const pairKey = effect?.pairId;
   useEffect(() => {
     setHeatSelected(null);
     setHeatHover(null);
-  }, [chamberKey]);
+  }, [chamberKey, pairKey]);
 
   if (!effect || !p24) return null;
 
@@ -108,8 +195,7 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
   const bandCurrent = effect.districts.filter((d) => inBand(d.currentPct)).length;
 
   const moved = disp.districts || [];
-  const heavy = moved.filter((d) => d.displacedPct >= 0.3).length;
-  const worst = moved.slice(0, 4);
+  const pop = effect.population || {};
 
   // ---------------------------------------------------------------- figure 1
   // Full-width scatter: old-lines share (x) vs new-lines share (y).
@@ -190,12 +276,19 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
   ];
 
   // ---------------------------------------------------------------- figure 3
-  // Displacement heatmap: one square per district, shaded by the share of its
-  // population the map moved; district number + % are printed in every cell.
+  // Displacement heatmap: one square per district, shaded by the encoded metric
+  // (population moved out, moved in, or required for equal populations); the
+  // district number and its percentage are printed in every cell.
+  const metric = HEAT_METRICS.find((m) => m.key === heatMetric) || HEAT_METRICS[0];
+  const valueOf = (d) => d[metric.field] || 0;
+  const ranked = [...moved].sort((a, b) => valueOf(b) - valueOf(a));
   const cells =
     heatSort === 'district'
       ? [...moved].sort((a, b) => Number(a.district) - Number(b.district))
-      : moved;
+      : ranked;
+  const heatVals = moved.map(valueOf).sort((a, b) => a - b);
+  const heatMax = niceMaxShare(heatVals.length ? heatVals[Math.floor(0.98 * (heatVals.length - 1))] : 0);
+  const outlineAt = metric.key === 'required' ? heatMax * 0.5 : 0.3;
   const nCells = cells.length;
   const cols = nCells >= 100 ? 20 : nCells >= 40 ? 14 : 7;
   const rows = Math.max(1, Math.ceil(nCells / cols));
@@ -206,26 +299,59 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
   const gridW = cols * cell + (cols - 1) * cellGap;
   const gridX = DM.left + (DW - DM.left - DM.right - gridW) / 2;
   const DH = Math.round(DM.top + rows * (cell + cellGap) - cellGap + DM.bottom);
-  const rankOf = new Map(moved.map((d, i) => [Number(d.district), i + 1]));
+  const rankOf = new Map(ranked.map((d, i) => [Number(d.district), i + 1]));
   const heatSelectedRow = heatSelected != null ? moved.find((d) => Number(d.district) === heatSelected) : null;
+  const heatHeavy = moved.filter((d) => valueOf(d) >= outlineAt).length;
+
+  // ---------------------------------------------------------------- figure 4
+  // Population over/under the ideal district size, for both plans.
+  const popRows = [...moved].sort((a, b) => Number(a.district) - Number(b.district));
+  const PW = 1160;
+  const PH = 250;
+  const PM = { top: 22, right: 20, bottom: 46, left: 56 };
+  const pPlotW = PW - PM.left - PM.right;
+  const pPlotH = PH - PM.top - PM.bottom;
+  const devMax = Math.max(
+    0.005,
+    ...popRows.flatMap((d) => [Math.abs(d.deviationPct || 0), Math.abs(d.deviationCurrentPct || 0)]),
+  );
+  const py = (v) =>
+    PM.top + pPlotH / 2 - (Math.max(-devMax, Math.min(devMax, v)) / devMax) * (pPlotH / 2);
+  const px = (i) => PM.left + (popRows.length === 1 ? pPlotW / 2 : (i / (popRows.length - 1)) * pPlotW);
+  const popTicks = [-devMax, -devMax / 2, 0, devMax / 2, devMax];
+  // Congressional districts are equal to the person, so their deviations are
+  // hundredths of a percent and need more decimals to be readable at all.
+  const devDigits = devMax < 0.001 ? 3 : devMax < 0.01 ? 2 : 1;
+
+  // --------------------------------------------- incumbents drawn across lines
+  const crossedRows = incumbentRows.filter((r) => r.crossed);
+  const crossedByD = crossedRows.filter((r) => r.priorPct > 0.5);
+  const crossedByR = crossedRows.filter((r) => r.priorPct <= 0.5);
+  const bigMovers = incumbentRows
+    .slice()
+    .sort((a, b) => Math.abs(b.shiftPts) - Math.abs(a.shiftPts))
+    .slice(0, 8);
 
   const isHistoricalData = year !== 2024;
   const yearNote = isHistoricalData
     ? ` (Note: this comparison uses 2024 presidential vote data, shown for context even though you're viewing ${year} results)`
     : '';
 
+  const eventCap = `${effect.eventLabel.charAt(0).toUpperCase()}${effect.eventLabel.slice(1)}`;
+
   return (
     <Section
       id="mapswap"
       step="03"
-      kicker={`The map swap · ${chamberLabel} · 2024 redistricting effect${isHistoricalData ? ' (historical)' : ''}`}
+      kicker={`The map swap · ${chamberLabel} · ${effect.prior.label} → ${effect.current.label}${isHistoricalData ? ' (historical)' : ''}`}
       title={
         lostByD.length && wonByD.length
-          ? `The 2024 redistricting gave Democrats ${wonByD.length} district${wonByD.length === 1 ? '' : 's'} and took ${lostByD.length} away`
-          : 'The 2024 maps: same voters, different lines'
+          ? `${eventCap} gave Democrats ${wonByD.length} district${wonByD.length === 1 ? '' : 's'} and took ${lostByD.length} away`
+          : `${eventCap}: same voters, different lines`
       }
-      lede={`How the 2024 redistricting affected ${chamberLabel.toLowerCase()} by comparing the ${effect.prior.label} to the ${effect.current.label}, using the 2024 presidential vote. The seat count moved from ${p24.priorSeatsD} to ${p24.currentSeatsD} (${seatWord}), while ${fmtInt(disp.people)} people — ${fmtPct(disp.pct)} of the state — landed in a different district.${yearNote}`}
+      lede={`How ${effect.eventLabel} affected ${chamberLabel.toLowerCase()} by comparing the ${effect.prior.label} to the ${effect.current.label}, using the 2024 presidential vote. The seat count moved from ${p24.priorSeatsD} to ${p24.currentSeatsD} (${seatWord}), while ${fmtInt(disp.people)} people — ${fmtPct(disp.pct)} of the state — landed in a different district.${yearNote}`}
       aside={
+        <>
         <div className="aside-block">
           <p className="aside-title">What the swap did not change</p>
           <dl className="index-list">
@@ -273,9 +399,37 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
             one party is packed into fewer districts.
           </p>
         </div>
+
+        <div className="aside-block">
+          <p className="aside-title">The most extreme districts</p>
+          <ol className="closest-list">
+            {extremeDistricts.map((d) => (
+              <li key={d.district}>
+                <span className="closest-district">
+                  {dc} {d.district}
+                </span>
+                <span className="closest-winner">
+                  <i style={{ background: d.currentPct > 0.5 ? PARTY.D : PARTY.R }} />
+                  {d.currentPct > 0.5 ? 'Democratic' : 'Republican'}
+                </span>
+                <span className="closest-margin">{fmtPct(Math.abs(d.currentPct - 0.5) * 2)}</span>
+              </li>
+            ))}
+          </ol>
+          <p className="micro-note">
+            Furthest from a tie under the {effect.current.label}, as a two-party margin. These are the packed seats:
+            together with the {bandCurrent} district{bandCurrent === 1 ? '' : 's'} inside the{' '}
+            {Math.round(BAND[0] * 100)}–{Math.round(BAND[1] * 100)}% competitive zone, they are the two ends of the
+            same distribution. A map with more extremes and fewer competitive seats converts the same votes into a
+            lopsided seat count.
+          </p>
+        </div>
+        </>
       }
       footer={`Method: both plan files carry district-level shares computed from one VTD vote file, so the two counts differ only by the lines. Displacement is area-weighted population reassignment; the "arithmetic minimum" is the population that equalising district sizes requires (${fmtInt(disp.arithmeticMinimum)} people, ${fmtPct(disp.arithmeticMinimumPct, 2)}). Competitive zone = 46.5–53.5% two-party Democratic share, the threshold used in FDGA's 2022 evaluation with the Princeton Gerrymandering Project.`}
     >
+      {pairControl}
+
       <div className="kpi-row">
         <div className="kpi is-flag">
           <span className="kpi-label">People reassigned</span>
@@ -309,8 +463,8 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
 
       <figure className="chart">
         <FigureTools
-          name={`map-swap-${effect.chamber}`}
-          title={`The 2024 redistricting effect on ${effect.label}: each district's 2024 presidential vote under both maps`}
+          name={`map-swap-${effect.pairId}-${effect.chamber}`}
+          title={`${eventCap}: each district's 2024 presidential vote under both maps`}
           subtitle={`Every district: Democratic share under the ${effect.prior.label.toLowerCase()} (x) against the ${effect.current.label.toLowerCase()} (y)${isHistoricalData ? ' (shown for context with ' + year + ' results)' : ''}`}
         />
         <figcaption>The 2024 presidential vote in every district, under the old lines and the new ones</figcaption>
@@ -501,11 +655,28 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
 
       <figure className="chart">
         <FigureTools
-          name={`map-swap-displacement-${effect.chamber}`}
-          title={`${effect.label}: how much of each district's population was moved`}
-          subtitle="One square per district, shaded by the share of its residents reassigned to a different district"
+          name={`map-swap-displacement-${metric.key}-${effect.chamber}`}
+          title={`${effect.label}: how much of each district's population was moved (${metric.label.toLowerCase()})`}
+          subtitle="One square per district, shaded by the encoded share; the district number and its percentage are printed in every cell"
         />
-        <figcaption>Population moved out of each district — one square per district</figcaption>
+        <figcaption>{metric.caption}</figcaption>
+        <div className="chart-toggle" role="group" aria-label="What each square encodes">
+          <span>Squares show:</span>
+          {HEAT_METRICS.map((m) => (
+            <button
+              key={m.key}
+              type="button"
+              className={heatMetric === m.key ? 'is-active' : ''}
+              aria-pressed={heatMetric === m.key}
+              onClick={() => {
+                setHeatMetric(m.key);
+                setHeatSelected(null);
+              }}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
         <div className="chart-toggle" role="group" aria-label="Heatmap cell order">
           <span>Squares ordered:</span>
           <button
@@ -530,22 +701,23 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
           <svg
             viewBox={`0 0 ${DW} ${DH}`}
             role="img"
-            aria-label={`Heatmap: one square per ${chamberLabel} district, shaded by the share of its population the 2024 map moved to a different district; each square shows the district number and percentage`}
+            aria-label={`Heatmap: one square per ${chamberLabel} district, shaded by ${metric.legend}; each square shows the district number and percentage`}
           >
             <defs>
-              <linearGradient id={`heat-ramp-${effect.chamber}`} x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0" stopColor={heatColor(0)} />
-                <stop offset={0.3 / HEAT_MAX} stopColor={heatColor(0.3)} />
-                <stop offset="1" stopColor={heatColor(HEAT_MAX)} />
+              <linearGradient id={`heat-ramp-${metric.key}-${effect.chamber}`} x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stopColor={heatColor(0, heatMax)} />
+                <stop offset={outlineAt / heatMax} stopColor={heatColor(outlineAt, heatMax)} />
+                <stop offset="1" stopColor={heatColor(heatMax, heatMax)} />
               </linearGradient>
             </defs>
 
             {cells.map((d, i) => {
-              const pct = d.displacedPct || 0;
+              const pct = valueOf(d);
               const cx = gridX + (i % cols) * (cell + cellGap);
               const cy = DM.top + Math.floor(i / cols) * (cell + cellGap);
-              const dark = pct / HEAT_MAX > 0.55;
+              const dark = pct / heatMax > 0.55;
               const isSel = heatSelected === Number(d.district);
+              const outlined = pct >= outlineAt;
               return (
                 <g
                   key={d.district}
@@ -559,8 +731,9 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
                   onClick={() => setHeatSelected(isSel ? null : Number(d.district))}
                 >
                   <title>
-                    {`${dc} ${d.district}: ${fmtPct(pct)} of ${fmtInt(d.pop)} residents moved ` +
-                      `(equality required ${fmtPct(d.requiredPct || 0)})`}
+                    {`${dc} ${d.district}: ${fmtPct(pct)} ${metric.label.toLowerCase()} · ` +
+                      `moved out ${fmtPct(d.displacedPct || 0)}, ` +
+                      `required ${fmtPct(d.requiredPct || 0)}`}
                   </title>
                   <rect
                     x={cx}
@@ -568,9 +741,9 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
                     width={cell}
                     height={cell}
                     rx="5"
-                    fill={heatColor(pct)}
-                    stroke={isSel ? '#6440a4' : pct >= 0.3 ? '#1c1a2b' : 'none'}
-                    strokeWidth={isSel ? 2.4 : pct >= 0.3 ? 1.1 : 0}
+                    fill={heatColor(pct, heatMax)}
+                    stroke={isSel ? '#6440a4' : outlined ? '#1c1a2b' : 'none'}
+                    strokeWidth={isSel ? 2.4 : outlined ? 1.1 : 0}
                     strokeOpacity={isSel ? 1 : 0.55}
                   />
                   <text
@@ -587,10 +760,10 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
                     x={cx + cell / 2}
                     y={cy + cell * 0.74}
                     textAnchor="middle"
-                    fontSize="9.5"
+                    fontSize={heatMax < 0.05 ? 8.6 : 9.5}
                     fill={dark ? '#efe9f2' : '#726d89'}
                   >
-                    {Math.round(pct * 100)}%
+                    {heatMax < 0.05 ? fmtPct(pct, 2) : `${Math.round(pct * 100)}%`}
                   </text>
                 </g>
               );
@@ -604,27 +777,37 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
                 width="220"
                 height="10"
                 rx="5"
-                fill={`url(#heat-ramp-${effect.chamber})`}
+                fill={`url(#heat-ramp-${metric.key}-${effect.chamber})`}
                 stroke="#d7d3e3"
                 strokeWidth="0.6"
               />
               <text x="0" y="26" className="axis-label">
                 0%
               </text>
-              <text x={220 * (0.3 / HEAT_MAX)} y="26" textAnchor="middle" className="axis-label">
-                30%
+              <text x={220 * (outlineAt / heatMax)} y="26" textAnchor="middle" className="axis-label">
+                {fmtPct(outlineAt, heatMax < 0.05 ? 2 : 0)}
               </text>
               <text x="220" y="26" textAnchor="end" className="axis-label">
-                75%+
+                {fmtPct(heatMax, heatMax < 0.05 ? 2 : 0)}+
               </text>
               <text x="244" y="9" className="axis-label">
-                share of the district&rsquo;s residents moved to a different district
+                {metric.legend}
               </text>
             </g>
-            <g transform={`translate(${DW - DM.right - 210}, ${DH - 40})`}>
-              <rect x="0" y="0" width="14" height="14" rx="3" fill={heatColor(0.35)} stroke="#1c1a2b" strokeWidth="1.1" strokeOpacity="0.55" />
+            <g transform={`translate(${DW - DM.right - 250}, ${DH - 40})`}>
+              <rect
+                x="0"
+                y="0"
+                width="14"
+                height="14"
+                rx="3"
+                fill={heatColor(outlineAt * 1.2, heatMax)}
+                stroke="#1c1a2b"
+                strokeWidth="1.1"
+                strokeOpacity="0.55"
+              />
               <text x="22" y="11" className="axis-label">
-                outlined: 30%+ moved ({heavy} districts)
+                outlined: {fmtPct(outlineAt, heatMax < 0.05 ? 2 : 0)}+ ({heatHeavy} districts)
               </text>
             </g>
           </svg>
@@ -635,14 +818,15 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
             <strong>
               {dc} {heatHover.district}
             </strong>
-            <span>{fmtPct(heatHover.displacedPct || 0)} of residents moved</span>
             <span>
-              {fmtInt(Math.round((heatHover.displacedPct || 0) * (heatHover.pop || 0)))} of {fmtInt(heatHover.pop)}{' '}
-              people
+              {fmtPct(valueOf(heatHover))} {metric.label.toLowerCase()}
+            </span>
+            <span>
+              moved out {fmtPct(heatHover.displacedPct || 0)} · required {fmtPct(heatHover.requiredPct || 0)}
             </span>
             <em>
-              rank {rankOf.get(Number(heatHover.district))} of {moved.length} · equality required{' '}
-              {fmtPct(heatHover.requiredPct || 0)}
+              rank {rankOf.get(Number(heatHover.district))} of {moved.length} by {metric.label.toLowerCase()} ·{' '}
+              {fmtInt(heatHover.pop)} residents
             </em>
           </div>
         )}
@@ -655,9 +839,10 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
           </strong>
           <span>
             {fmtPct(heatSelectedRow.displacedPct || 0)} of its {fmtInt(heatSelectedRow.pop)} residents —{' '}
-            {fmtInt(Math.round((heatSelectedRow.displacedPct || 0) * heatSelectedRow.pop))} people — were moved to a
-            different district; equalising populations required {fmtPct(heatSelectedRow.requiredPct || 0)}. Rank{' '}
-            {rankOf.get(Number(heatSelectedRow.district))} of {moved.length} by share moved.
+            {fmtInt(Math.round((heatSelectedRow.displacedPct || 0) * heatSelectedRow.pop))} people — were moved out to
+            a different district, and its population is now {fmtInt(heatSelectedRow.popCurrent)}. Equalising
+            populations required {fmtPct(heatSelectedRow.requiredPct || 0)}. Rank{' '}
+            {rankOf.get(Number(heatSelectedRow.district))} of {moved.length} by {metric.label.toLowerCase()}.
           </span>
           <button type="button" className="primary-button" onClick={() => setHeatSelected(null)}>
             Clear
@@ -666,12 +851,155 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
       )}
 
       <p className="micro-note">
-        {heavy} of {moved.length} districts had at least 30% of their residents reassigned (outlined squares); the
-        largest was {dc} {worst[0]?.district} at {fmtPct(worst[0]?.displacedPct || 0)}. Hover or click a square to
-        see the population moved and the share that equalising district sizes required — under 1% almost everywhere.
-        Districts keep their numbers between plans, so “moved” means residents of district {worst[0]?.district} were
-        handed to a different member.
+        {heatHeavy} of {moved.length} districts are outlined at {fmtPct(outlineAt, heatMax < 0.05 ? 2 : 0)} or more{' '}
+        {metric.label.toLowerCase()}; the largest is {dc} {ranked[0]?.district} at {fmtPct(valueOf(ranked[0] || {}))}.
+        Switch between the two views to read the district-cores test the way FDGA&rsquo;s 2022 evaluation did: what
+        left each district, and how little of that movement equal populations actually required. Squares are keyed by
+        district number, which both plans use; {effect.renumberedDistricts
+          ? `${effect.renumberedDistricts} of ${moved.length} districts saw most of their residents end up under a different number, so “${dc} ${ranked[0]?.district}” before and after is the same seat, not the same people.`
+          : 'numbering was preserved, so “moved” means residents were handed to a different member.'}
       </p>
+
+      <figure className="chart">
+        <FigureTools
+          name={`map-swap-population-${effect.pairId}-${effect.chamber}`}
+          title={`${effect.label}: population over/under the ideal district size`}
+          subtitle={`Signed deviation of each district's population from the ideal ${fmtInt(pop.ideal || 0)}, under both maps`}
+        />
+        <figcaption>Population over/under in each district, both maps</figcaption>
+        <div className="chart-scroll">
+          <svg
+            viewBox={`0 0 ${PW} ${PH}`}
+            role="img"
+            aria-label={`Dot chart of each ${chamberLabel} district's population deviation from the ideal district size, under the ${effect.prior.label} and the ${effect.current.label}`}
+          >
+            {popTicks.map((t) => (
+              <g key={`pt-${t}`}>
+                <line
+                  x1={PM.left}
+                  x2={PM.left + pPlotW}
+                  y1={py(t)}
+                  y2={py(t)}
+                  className={Math.abs(t) < 1e-9 ? 'zero-line' : 'gridline'}
+                />
+                <text x={PM.left - 8} y={py(t) + 3.5} textAnchor="end" className="axis-label">
+                  {t > 0 ? '+' : ''}
+                  {(t * 100).toFixed(devDigits)}%
+                </text>
+              </g>
+            ))}
+            {popRows.map((d, i) => (
+              <g key={`pd-${d.district}`}>
+                <title>
+                  {`${dc} ${d.district}: ${fmtInt(d.pop)} residents under the ${effect.prior.label} ` +
+                    `(${d.deviationPct > 0 ? '+' : ''}${((d.deviationPct || 0) * 100).toFixed(devDigits)}% vs ideal), ` +
+                    `${fmtInt(d.popCurrent)} under the ${effect.current.label} ` +
+                    `(${(d.deviationCurrentPct || 0) > 0 ? '+' : ''}${((d.deviationCurrentPct || 0) * 100).toFixed(devDigits)}%)`}
+                </title>
+                <circle cx={px(i)} cy={py(d.deviationPct || 0)} r="2.4" fill="#a9a3bf" />
+                <circle
+                  cx={px(i)}
+                  cy={py(d.deviationCurrentPct || 0)}
+                  r="2.8"
+                  fill={(d.deviationCurrentPct || 0) >= 0 ? '#6440a4' : '#a05a7e'}
+                />
+              </g>
+            ))}
+            <line x1={PM.left} x2={PM.left + pPlotW} y1={py(0)} y2={py(0)} className="axis-line" />
+            <text x={PM.left} y={PH - 26} className="axis-label">
+              {dc} 1
+            </text>
+            <text x={PM.left + pPlotW} y={PH - 26} textAnchor="end" className="axis-label">
+              {dc} {popRows[popRows.length - 1]?.district}
+            </text>
+            <text x={PM.left + pPlotW / 2} y={PH - 8} textAnchor="middle" className="axis-label" fontSize="11">
+              every district in number order · grey = {effect.prior.label}, coloured = {effect.current.label}
+            </text>
+          </svg>
+        </div>
+        <div className="legend">
+          <span className="legend-item">
+            <i style={{ background: '#a9a3bf', height: 9, width: 9, borderRadius: '50%' }} /> {effect.prior.label}
+          </span>
+          <span className="legend-item">
+            <i style={{ background: '#6440a4', height: 9, width: 9, borderRadius: '50%' }} /> over ideal
+          </span>
+          <span className="legend-item">
+            <i style={{ background: '#a05a7e', height: 9, width: 9, borderRadius: '50%' }} /> under ideal
+          </span>
+          <span className="legend-hint">
+            ideal district = {fmtInt(pop.ideal || 0)} people · largest deviation{' '}
+            {fmtPct(Math.abs(pop.currentMaxDeviationPct || 0), 2)} ({effect.current.label}),{' '}
+            {fmtPct(Math.abs(pop.priorMaxDeviationPct || 0), 2)} ({effect.prior.label})
+          </span>
+        </div>
+      </figure>
+
+      <p className="micro-note">
+        Population equality is the one test a map must pass to be lawful at all, and both plans do: the largest district
+        is {fmtPct(Math.abs(pop.currentMaxDeviationPct || 0), 2)} from the ideal {fmtInt(pop.ideal || 0)} residents.
+        That is why the movement in the squares above cannot be explained by equalising populations — the arithmetic
+        minimum is {fmtInt(disp.arithmeticMinimum)} people statewide, {fmtPct(disp.arithmeticMinimumPct, 2)}.
+      </p>
+
+      {incumbentRows.length > 0 && (
+        <div className="table-scroll">
+          <table className="metric-table">
+            <caption>
+              {crossedByD.length + crossedByR.length
+                ? `${crossedByD.length} incumbent${crossedByD.length === 1 ? '' : 's'} drawn from a Democratic-leaning district into a Republican-leaning one, and ${crossedByR.length} the other way`
+                : `No incumbent's district changed party lean — the ${bigMovers.length} largest shifts are shown instead`}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Incumbent ({incumbentYear})</th>
+                <th scope="col">Party</th>
+                <th scope="col" className="num">District</th>
+                <th scope="col" className="num">% D before</th>
+                <th scope="col" className="num">% D after</th>
+                <th scope="col" className="num">Lean shift</th>
+                <th scope="col">What changed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(crossedRows.length ? crossedRows : bigMovers).map((r) => (
+                <tr key={`${r.district}-${r.name}`} className={r.crossed ? 'is-outside' : ''}>
+                  <th scope="row">{r.name}</th>
+                  <td>
+                    <span className="party-dot" style={{ background: PARTY[r.party] || PARTY.other }} />
+                    {r.party === 'D' ? 'Democratic' : r.party === 'R' ? 'Republican' : r.party}
+                  </td>
+                  <td className="num">
+                    {dc} {r.district}
+                  </td>
+                  <td className="num" style={{ color: r.priorPct > 0.5 ? PARTY.D : PARTY.R }}>
+                    {fmtPct(r.priorPct)}
+                  </td>
+                  <td className="num" style={{ color: r.currentPct > 0.5 ? PARTY.D : PARTY.R }}>
+                    {fmtPct(r.currentPct)}
+                  </td>
+                  <td className="num">{pts(r.shiftPts)}</td>
+                  <td>
+                    {r.crossed
+                      ? `${r.priorPct > 0.5 ? 'Democratic' : 'Republican'}-leaning → ${r.currentPct > 0.5 ? 'Democratic' : 'Republican'}-leaning`
+                      : `stayed ${r.currentPct > 0.5 ? 'Democratic' : 'Republican'}-leaning`}
+                    {remedyIds.includes(Number(r.district)) ? ' · became Black-majority' : ''}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {incumbentRows.length > 0 && (
+        <p className="micro-note">
+          Incumbents are the {incumbentYear} winners — the last election fought under the {effect.prior.label}. Lean is
+          the 2024 presidential two-party share of the district they now live in, so the shift is the map&rsquo;s doing,
+          not a change of mind by voters. {crossedByD.length} Democratic-leaning seats became Republican-leaning and{' '}
+          {crossedByR.length} moved the other way.
+        </p>
+      )}
 
       <div className="law-note">
         <p>
@@ -690,55 +1018,122 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
           That is arithmetic, not a rule: exceeding it is not, by itself, unlawful, and this story does not claim that
           it is.
         </p>
-        <p>
-          <strong>What the court did order:</strong> on 26 October 2023 a federal court held that the 2021 House and
-          Senate plans violated{' '}
-          {source('vra-section-2') ? (
-            <a href={source('vra-section-2').url} target="_blank" rel="noreferrer">
-              Section 2 of the Voting Rights Act
-            </a>
-          ) : (
-            'Section 2 of the Voting Rights Act'
-          )}{' '}
-          and required five new Black-majority House districts (
-          {source('alpha-phi-alpha-case') ? (
-            <a href={source('alpha-phi-alpha-case').url} target="_blank" rel="noreferrer">
-              case record
-            </a>
-          ) : (
-            'case record'
-          )}
-          ). Measured by voting-age population, the 2024 map created exactly {remedyIds.length === 1 ? 'one' : remedyIds.length}:{' '}
-          {dc} {remedyIds.join(`, ${dc} `)} — and no district lost Black-majority status.
-        </p>
-        <p>
-          <strong>The same map moved three Democratic districts to the Republican column</strong> —{dc}{' '}
-          {lostByD.map((f) => f.district).join(`, ${dc} `)} — and four Republican districts to the Democrats. The court
-          then approved the plans, holding that drawing with “an eye toward securing partisan advantage” does “not
-          alone violate Section 2” (
-          {source('alpha-phi-alpha-order-2023') ? (
-            <a href={source('alpha-phi-alpha-order-2023').url} target="_blank" rel="noreferrer">
-              28 December 2023 order
-            </a>
-          ) : (
-            '28 December 2023 order'
-          )}
-          ). Federal courts cannot hear the partisan claim at all (
-          {source('rucho') ? (
-            <a href={source('rucho').url} target="_blank" rel="noreferrer">
-              Rucho v. Common Cause
-            </a>
-          ) : (
-            'Rucho v. Common Cause'
-          )}
-          ). That is the gap this page exists to make visible.
-        </p>
+        {effect.kind === 'remedy' ? (
+          <>
+            <p>
+              <strong>What the court did order:</strong> on 26 October 2023 a federal court held that the 2021 House and
+              Senate plans violated{' '}
+              {source('vra-section-2') ? (
+                <a href={source('vra-section-2').url} target="_blank" rel="noreferrer">
+                  Section 2 of the Voting Rights Act
+                </a>
+              ) : (
+                'Section 2 of the Voting Rights Act'
+              )}{' '}
+              and required five new Black-majority House districts (
+              {source('alpha-phi-alpha-case') ? (
+                <a href={source('alpha-phi-alpha-case').url} target="_blank" rel="noreferrer">
+                  case record
+                </a>
+              ) : (
+                'case record'
+              )}
+              ). Measured by voting-age population, the 2024 map created exactly {remedyIds.length === 1 ? 'one' : remedyIds.length}:{' '}
+              {dc} {remedyIds.join(`, ${dc} `)} — and no district lost Black-majority status.
+            </p>
+            <p>
+              <strong>The same map moved {lostByD.length} Democratic district{lostByD.length === 1 ? '' : 's'} to the
+              Republican column</strong>
+              {lostByD.length ? (
+                <>
+                  {' '}
+                  —{dc} {lostByD.map((f) => f.district).join(`, ${dc} `)} — and {wonByD.length} Republican district
+                  {wonByD.length === 1 ? '' : 's'} to the Democrats.
+                </>
+              ) : (
+                '.'
+              )}{' '}
+              The court then approved the plans, holding that drawing with “an eye toward securing partisan advantage”
+              does “not alone violate Section 2” (
+              {source('alpha-phi-alpha-order-2023') ? (
+                <a href={source('alpha-phi-alpha-order-2023').url} target="_blank" rel="noreferrer">
+                  28 December 2023 order
+                </a>
+              ) : (
+                '28 December 2023 order'
+              )}
+              ). Federal courts cannot hear the partisan claim at all (
+              {source('rucho') ? (
+                <a href={source('rucho').url} target="_blank" rel="noreferrer">
+                  Rucho v. Common Cause
+                </a>
+              ) : (
+                'Rucho v. Common Cause'
+              )}
+              ). That is the gap this page exists to make visible.
+            </p>
+          </>
+        ) : (
+          <>
+            <p>
+              <strong>What the 2021 cycle did to representation.</strong> Going from the {effect.prior.label} to the{' '}
+              {effect.current.label}, Black-majority {chamberLabel.toLowerCase()} districts went from{' '}
+              {effect.representation.prior.counts.blackMajority} to{' '}
+              {effect.representation.current.counts.blackMajority}, and {remedyIds.length} district
+              {remedyIds.length === 1 ? '' : 's'} crossed the 50% Black voting-age line
+              {remedyIds.length ? (
+                <>
+                  {' '}
+                  ({dc} {remedyIds.slice(0, 8).join(`, ${dc} `)}
+                  {remedyIds.length > 8 ? `, and ${remedyIds.length - 8} more` : ''})
+                </>
+              ) : (
+                ''
+              )}
+              . These are the plans a federal court later struck down under{' '}
+              {source('vra-section-2') ? (
+                <a href={source('vra-section-2').url} target="_blank" rel="noreferrer">
+                  Section 2 of the Voting Rights Act
+                </a>
+              ) : (
+                'Section 2 of the Voting Rights Act'
+              )}{' '}
+              — switch the comparison above to the 2024 remedial lines to see what replaced them (
+              {source('alpha-phi-alpha-case') ? (
+                <a href={source('alpha-phi-alpha-case').url} target="_blank" rel="noreferrer">
+                  case record
+                </a>
+              ) : (
+                'case record'
+              )}
+              ).
+            </p>
+            <p>
+              <strong>What the map&rsquo;s authors said, and what the numbers show.</strong> FDGA/PGP&rsquo;s 2022
+              evaluation quoted the redistricting chairs — “We maintained the core of these districts” — beside a chart
+              of how much of each district moved. The squares above are that chart: {fmtPct(disp.pct)} of Georgia&rsquo;s
+              population, {fmtInt(disp.people)} people, landed in a different {chamberLabel.toLowerCase()} district,
+              against the {fmtInt(disp.arithmeticMinimum)} ({fmtPct(disp.arithmeticMinimumPct, 2)}) that equalising
+              populations required. On the 2024 presidential vote, {p24.flips.length} district
+              {p24.flips.length === 1 ? '' : 's'} would change hands between these two maps. Courts cannot hear that
+              partisan claim (
+              {source('rucho') ? (
+                <a href={source('rucho').url} target="_blank" rel="noreferrer">
+                  Rucho v. Common Cause
+                </a>
+              ) : (
+                'Rucho v. Common Cause'
+              )}
+              ), which is why it is measured here instead.
+            </p>
+          </>
+        )}
       </div>
 
       {year !== 2024 && (
         <p className="micro-note">
-          This comparison is fixed to 2024, the only election fought on two different sets of lines. The year filter
-          above does not change it.
+          This comparison holds voters fixed at the 2024 presidential result and varies only the lines, so the year
+          filter above does not change it.
         </p>
       )}
     </Section>

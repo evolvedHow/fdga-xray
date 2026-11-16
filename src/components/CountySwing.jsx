@@ -1,16 +1,7 @@
 import React, { useMemo } from 'react';
 import Section from './Section';
 import FigureTools from './FigureTools';
-
-/** Election offices and the prior cycle each compares against. */
-const COMPARISONS = {
-  president: { 2020: 2024, 2016: 2020, 2012: 2016, 2008: 2012, 2004: 2008, 2000: 2004 },
-  governor: { 2018: 2022, 2014: 2018, 2010: 2014, 2006: 2010, 2002: 2006 },
-  us_house: { 2020: 2024, 2016: 2020, 2012: 2016, 2008: 2012, 2004: 2008, 2000: 2004 },
-  us_senate: { 2020: 2024, 2016: 2020, 2012: 2016, 2008: 2012, 2004: 2008, 2000: 2004 },
-  state_house: { 2020: 2024, 2016: 2020, 2012: 2016, 2008: 2012, 2004: 2008, 2000: 2004 },
-  state_senate: { 2020: 2024, 2016: 2020, 2012: 2016, 2008: 2012, 2004: 2008, 2000: 2004 },
-};
+import { countyShifts, resolveCountyComparison } from '../lib/data';
 
 /** Smallest "nice" axis bound that covers the data: 0.25, 0.5, 1, 2 or 5. */
 function niceMax(v) {
@@ -33,37 +24,12 @@ const RED = '#db1623';
  * roughly as tall as it is wide instead of a 2,600px single column.
  */
 export default function CountySwing({ countyGeoJSON, countyVotes, electionKey, year, chamberLabel }) {
-  const comparison = useMemo(() => {
-    const comp = COMPARISONS[electionKey];
-    if (!comp) return null;
-    const prevYearStr = Object.keys(comp).find((prevY) => Number(comp[prevY]) === Number(year));
-    if (!prevYearStr) return null;
-    return { prev: Number(prevYearStr), curr: Number(year) };
-  }, [electionKey, year]);
+  const comparison = useMemo(() => resolveCountyComparison(electionKey, year), [electionKey, year]);
 
-  const arrows = useMemo(() => {
-    if (!comparison || !countyVotes?.[electionKey]) return [];
-
-    const votes = countyVotes[electionKey];
-    const prevVotes = votes[String(comparison.prev)];
-    const currVotes = votes[String(comparison.curr)];
-    if (!prevVotes || !currVotes) return [];
-
-    const result = [];
-    for (const countyName of Object.keys(currVotes)) {
-      const prev = prevVotes[countyName];
-      const curr = currVotes[countyName];
-      if (!prev || !curr) continue;
-      result.push({
-        county: countyName,
-        shift: curr.pctD - prev.pctD, // positive = Democratic gain
-        prevPct: prev.pctD,
-        currPct: curr.pctD,
-      });
-    }
-    result.sort((a, b) => Math.abs(b.shift) - Math.abs(a.shift));
-    return result;
-  }, [comparison, countyVotes, electionKey]);
+  const arrows = useMemo(
+    () => countyShifts(countyVotes, electionKey, comparison),
+    [countyVotes, electionKey, comparison],
+  );
 
   // ------------------------------------------------------------- layout
   const W = 1160;

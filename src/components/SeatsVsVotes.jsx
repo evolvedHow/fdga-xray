@@ -35,6 +35,27 @@ export default function SeatsVsVotes({ rows, year, chamberLabel }) {
   const declared = current.racesContested;
   const uncontested = current.racesUncontested;
 
+  // ------------------------------------------- vote share vs seat share, by cycle
+  // The deck's "partisan gap narrowing since 2010" chart: one line for the
+  // Republican share of the two-party vote, one for the Republican share of
+  // seats, with the gap between them shaded.
+  const W2 = 1060;
+  const H2 = 330;
+  const M2 = { top: 30, right: 26, bottom: 42, left: 54 };
+  const plotW2 = W2 - M2.left - M2.right;
+  const plotH2 = H2 - M2.top - M2.bottom;
+  const first = trend[0];
+  const last = trend[trend.length - 1];
+  const x2 = (yr) =>
+    M2.left + ((yr - first.year) / (last.year - first.year || 1)) * plotW2;
+  const y2 = (v) => M2.top + plotH2 - Math.max(0, Math.min(1, v ?? 0)) * plotH2;
+  const gapFirst = (first.pctSeatsR ?? 0) - (first.pctVotesR ?? 0);
+  const gapLast = (last.pctSeatsR ?? 0) - (last.pctVotesR ?? 0);
+  const narrowing = Math.abs(gapLast) < Math.abs(gapFirst);
+  const gapArea =
+    `M${trend.map((r) => `${x2(r.year)},${y2(r.pctSeatsR)}`).join('L')}` +
+    `L${[...trend].reverse().map((r) => `${x2(r.year)},${y2(r.pctVotesR)}`).join('L')}Z`;
+
   return (
     <Section
       id="seats"
@@ -125,6 +146,96 @@ export default function SeatsVsVotes({ rows, year, chamberLabel }) {
           })}
         </svg>
       </figure>
+
+      <figure className="chart">
+        <FigureTools
+          name={`vote-seat-gap-${chamberLabel}`}
+          title={`${chamberLabel}: Republican vote share against Republican seat share, every cycle`}
+          subtitle={`The gap between the two lines is the seat bonus; ${first.year} to ${last.year}`}
+        />
+        <figcaption>
+          Vote share vs seat share, {first.year}–{last.year}: the gap is the shaded area
+        </figcaption>
+        <svg
+          viewBox={`0 0 ${W2} ${H2}`}
+          role="img"
+          aria-label={`Line chart comparing the Republican share of the two-party vote with the Republican share of ${chamberLabel} seats from ${first.year} to ${last.year}; the shaded area between them is the seat bonus`}
+        >
+          {[0, 0.25, 0.5, 0.75, 1].map((t) => (
+            <g key={`g-${t}`}>
+              <line x1={M2.left} x2={W2 - M2.right} y1={y2(t)} y2={y2(t)} className={t === 0.5 ? 'zero-line' : 'gridline'} />
+              <text x={M2.left - 8} y={y2(t) + 4} textAnchor="end" className={`axis-label${t === 0.5 ? ' is-current' : ''}`}>
+                {Math.round(t * 100)}%
+              </text>
+            </g>
+          ))}
+
+          <path d={gapArea} fill="#8b6fc4" opacity="0.16" />
+
+          <line x1={x2(year)} x2={x2(year)} y1={M2.top} y2={M2.top + plotH2} className="year-rule" />
+
+          <path
+            d={trend.map((r, i) => `${i === 0 ? 'M' : 'L'}${x2(r.year)},${y2(r.pctVotesR)}`).join('')}
+            fill="none"
+            stroke={PARTY.R}
+            strokeWidth="2.2"
+            strokeDasharray="6 4"
+            opacity="0.85"
+          />
+          <path
+            d={trend.map((r, i) => `${i === 0 ? 'M' : 'L'}${x2(r.year)},${y2(r.pctSeatsR)}`).join('')}
+            fill="none"
+            stroke={PARTY.R}
+            strokeWidth="2.4"
+          />
+
+          {trend.map((r) => (
+            <g key={`d-${r.year}`}>
+              <title>
+                {`${r.year}: Republicans won ${fmtPct(r.pctVotesR)} of the two-party vote and ` +
+                  `${fmtPct(r.pctSeatsR)} of seats (${r.seatsR ?? '—'}R–${r.seatsD ?? '—'}D), a gap of ` +
+                  `${r.gapR > 0 ? '+' : ''}${((r.gapR || 0) * 100).toFixed(1)} pts`}
+              </title>
+              <circle cx={x2(r.year)} cy={y2(r.pctVotesR)} r={r.year === year ? 4.6 : 3} fill="#ffffff" stroke={PARTY.R} strokeWidth="1.8" />
+              <circle cx={x2(r.year)} cy={y2(r.pctSeatsR)} r={r.year === year ? 4.6 : 3} fill={PARTY.R} />
+            </g>
+          ))}
+
+          {trend.map((r) => (
+            <text key={`t-${r.year}`} x={x2(r.year)} y={H2 - 18} textAnchor="middle" className={`axis-label${r.year === year ? ' is-current' : ''}`}>
+              {String(r.year).slice(2)}
+            </text>
+          ))}
+          <line x1={M2.left} x2={W2 - M2.right} y1={M2.top + plotH2} y2={M2.top + plotH2} className="axis-line" />
+          <text x={W2 - M2.right} y={M2.top - 12} textAnchor="end" className="axis-label">
+            solid = share of seats · dashed = share of the two-party vote
+          </text>
+          <text x={M2.left} y={H2 - 2} className="axis-label" fontSize="11">
+            {last.year}: {last.seatsR ?? '—'}R–{last.seatsD ?? '—'}D on {fmtPct(last.pctVotesR)} of the vote
+          </text>
+        </svg>
+        <div className="legend">
+          <span className="legend-item">
+            <i style={{ background: PARTY.R }} /> Republican seat share
+          </span>
+          <span className="legend-item">
+            <i style={{ background: '#ffffff', border: `1.8px solid ${PARTY.R}` }} /> Republican vote share
+          </span>
+          <span className="legend-hint">
+            50% line = an even split of both votes and seats · shaded area = the seat bonus
+          </span>
+        </div>
+      </figure>
+
+      <p className="micro-note">
+        In {first.year} Republicans won {fmtPct(first.pctVotesR)} of the {chamberLabel.toLowerCase()} vote and{' '}
+        {fmtPct(first.pctSeatsR)} of the seats — a gap of {gapFirst > 0 ? '+' : ''}
+        {(gapFirst * 100).toFixed(1)} points. By {last.year} the vote share was {fmtPct(last.pctVotesR)} and the seat
+        share {fmtPct(last.pctSeatsR)}, a gap of {gapLast > 0 ? '+' : ''}
+        {(gapLast * 100).toFixed(1)} points. The gap has {narrowing ? 'narrowed as Georgia became competitive' : 'widened'}{' '}
+        over that span; the {year} cycle sits {Math.abs(gap) < Math.abs(gapFirst) ? 'closer to' : 'further from'} the
+        even-split line than {first.year} did.
+      </p>
     </Section>
   );
 }

@@ -3,9 +3,13 @@ import Header from './components/Header';
 import Statewide from './components/Statewide';
 import SeatsVsVotes from './components/SeatsVsVotes';
 import CountySwing from './components/CountySwing';
+import CountyGrid from './components/CountyGrid';
 import MapEffect from './components/MapEffect';
 import Benchmark from './components/Benchmark';
+import Representation from './components/Representation';
+import ChamberBenchmark from './components/ChamberBenchmark';
 import PartisanRiver from './components/PartisanRiver';
+import PlanCompare from './components/PlanCompare';
 import CountyMap from './components/CountyMap';
 import Competitiveness from './components/Competitiveness';
 import PrecinctXray from './components/PrecinctXray';
@@ -20,6 +24,9 @@ const DEFAULT_STATE = {
   layout: 'vertical',
   county: null,
   precinct: null,
+  // Which map transition section 03 compares: the 2024 court remedy, or the
+  // deck's own previous-map → 2021-enacted comparison.
+  pair: 'remedy',
 };
 
 /** Read story state from the URL hash so views are shareable. */
@@ -36,6 +43,8 @@ function readHash(meta) {
   if (election && meta.elections.some((e) => e.key === election)) out.election = election;
   const layout = params.get('layout');
   if (layout === 'vertical' || layout === 'horizontal') out.layout = layout;
+  const pair = params.get('pair');
+  if (pair === 'remedy' || pair === 'enactment') out.pair = pair;
   const county = params.get('county');
   if (county) out.county = county;
   const precinct = params.get('precinct');
@@ -50,6 +59,7 @@ function writeHash(state) {
   params.set('year', String(state.year));
   params.set('election', state.election);
   params.set('layout', state.layout);
+  params.set('pair', state.pair);
   if (state.county) params.set('county', state.county);
   if (state.precinct) params.set('precinct', state.precinct);
   const next = `#${params.toString()}`;
@@ -149,6 +159,41 @@ export default function App() {
     () => meta?.elections.find((e) => e.key === state.election)?.label || '',
     [meta, state.election],
   );
+
+  /**
+   * Section 03 can compare either published transition: the 2021-23 lines
+   * against the 2024 court remedy, or the pre-2021 map against the 2021 enacted
+   * map (the comparison FDGA/PGP's 2022 evaluation ran). Both are scored on the
+   * same 2024 presidential vote, so only the lines differ.
+   */
+  const historyEffect = story?.map_effect_history?.[state.chamber] || null;
+  const activeEffect =
+    state.pair === 'enactment' && historyEffect
+      ? historyEffect
+      : story?.map_effect?.[state.chamber] || null;
+
+  const pairControl = historyEffect ? (
+    <div className="chart-toggle" role="group" aria-label="Which map transition to compare">
+      <span>Comparing:</span>
+      <button
+        type="button"
+        className={state.pair === 'remedy' ? 'is-active' : ''}
+        aria-pressed={state.pair === 'remedy'}
+        onClick={() => setState((s) => ({ ...s, pair: 'remedy' }))}
+      >
+        2021-23 lines → 2024 remedy
+      </button>
+      <button
+        type="button"
+        className={state.pair === 'enactment' ? 'is-active' : ''}
+        aria-pressed={state.pair === 'enactment'}
+        onClick={() => setState((s) => ({ ...s, pair: 'enactment' }))}
+      >
+        Previous map → 2021 enacted
+      </button>
+      <span className="legend-hint">both scored on the same 2024 presidential vote</span>
+    </div>
+  ) : null;
 
   const scrollToPrecincts = useCallback(() => {
     const el = document.getElementById('precincts');
@@ -269,9 +314,13 @@ export default function App() {
           ['swing', '01', 'The swing'],
           ['seats', '02', 'Votes vs seats'],
           ['county-swing', '02a', 'County swings'],
+          ['county-grid', '02b', 'County grid'],
           ['mapswap', '03', 'The map swap'],
           ['partisan-river', '03a', 'Landscape'],
+          ['plans', '03b', 'Plan comparison'],
           ['benchmark', '04', 'The benchmark'],
+          ['representation', '04b', 'Representation'],
+          ['chambers', '04c', 'All chambers'],
           ['counties', '05', 'County map'],
           ['competition', '06', 'Competition'],
           ['precincts', '07', 'Precinct X-Ray'],
@@ -318,11 +367,21 @@ export default function App() {
           chamberLabel={chamberMeta.label}
         />
 
+        <CountyGrid
+          countyVotes={story.county_votes}
+          electionKey={chamberMeta.office}
+          year={year}
+          chamberLabel={chamberMeta.label}
+        />
+
         <MapEffect
-          effect={story.map_effect?.[chamberMeta.key]}
+          effect={activeEffect}
           sources={story.sources}
           chamberLabel={chamberMeta.label}
           year={year}
+          contests={story.contests}
+          chamber={chamberMeta.key}
+          pairControl={pairControl}
         />
 
         <PartisanRiver
@@ -331,7 +390,22 @@ export default function App() {
           year={year}
           chamberLabel={chamberMeta.label}
         />
+        <PlanCompare
+          plans={story.plans?.[chamberMeta.key]}
+          planPairs={story.plan_pairs?.[chamberMeta.key]}
+          ensemble={story.ensemble?.[chamberMeta.key]}
+          chamberLabel={chamberMeta.label}
+        />
         <Benchmark ensemble={story.ensemble?.[chamberMeta.key]} chamberLabel={chamberMeta.label} />
+
+        <Representation
+          effect={story.map_effect?.[chamberMeta.key]}
+          ensemble={story.ensemble?.[chamberMeta.key]}
+          stateVap={story.state_vap}
+          chamberLabel={chamberMeta.label}
+        />
+
+        <ChamberBenchmark ensembles={story.ensemble} chambers={meta.chambers} />
 
         <CountyMap
           counties={story.counties}
