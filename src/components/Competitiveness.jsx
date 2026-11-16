@@ -42,11 +42,12 @@ export default function Competitiveness({ contests, chamberLabel, year }) {
     );
   }
 
-  // Increased width for better readability of bar chart
-  const W = 980;
-  const H = 220;
-  const M = { top: 18, right: 12, bottom: 34, left: 12 };
+  // Full card width; viewBox ~1:1 with rendered size so type stays crisp.
+  const W = 1160;
+  const H = 250;
+  const M = { top: 22, right: 14, bottom: 40, left: 14 };
   const slot = (W - M.left - M.right) / (stats.bins.length + 1);
+  const barW = Math.min(slot * 0.7, 130);
   const plotH = H - M.top - M.bottom;
 
   // The unopposed seats routinely outnumber any single margin bin (90 vs ~20
@@ -76,7 +77,7 @@ export default function Competitiveness({ contests, chamberLabel, year }) {
       lede={`${stats.uncontested} of ${data.length} seats had no major-party opponent. Of the ${stats.contested} contested races, only ${stats.under10} finished inside 10 points; the average margin was ${stats.avg == null ? '—' : fmtPct(stats.avg)}.`}
       footer="Source: fdga/contests.parquet. Uncontested = single major-party candidate; margin = winner share minus runner-up share."
       aside={
-        <>
+        <div className="aside-block">
           <h3 className="aside-title">Closest races</h3>
           <ol className="closest-list">
             {stats.closest.map((c) => (
@@ -92,7 +93,7 @@ export default function Competitiveness({ contests, chamberLabel, year }) {
               </li>
             ))}
           </ol>
-        </>
+        </div>
       }
     >
       <figure className="chart">
@@ -136,8 +137,8 @@ export default function Competitiveness({ contests, chamberLabel, year }) {
 
           {stats.bins.map((b, i) => {
             const h = Math.min(plotH, barHeight(b.count));
-            const x = M.left + slot * i + slot * 0.15;
-            const w = slot * 0.7;
+            const x = M.left + slot * i + (slot - barW) / 2;
+            const w = barW;
             return (
               <g key={b.label}>
                 <rect
@@ -160,9 +161,9 @@ export default function Competitiveness({ contests, chamberLabel, year }) {
 
           <g>
             <rect
-              x={M.left + slot * stats.bins.length + slot * 0.15}
+              x={M.left + slot * stats.bins.length + (slot - barW) / 2}
               y={H - M.bottom - Math.min(plotH, barHeight(stats.uncontested))}
-              width={slot * 0.7}
+              width={barW}
               height={Math.max(1, Math.min(plotH, barHeight(stats.uncontested)))}
               rx="3"
               fill="url(#unopposed-hatch)"
@@ -170,7 +171,7 @@ export default function Competitiveness({ contests, chamberLabel, year }) {
               strokeWidth="0.8"
             />
             <text
-              x={M.left + slot * stats.bins.length + slot * 0.15 + (slot * 0.7) / 2}
+              x={M.left + slot * stats.bins.length + slot / 2}
               y={H - M.bottom - Math.min(plotH, barHeight(stats.uncontested)) - 6}
               textAnchor="middle"
               className="bar-value"
@@ -178,7 +179,7 @@ export default function Competitiveness({ contests, chamberLabel, year }) {
               {stats.uncontested}
             </text>
             <text
-              x={M.left + slot * stats.bins.length + slot * 0.15 + (slot * 0.7) / 2}
+              x={M.left + slot * stats.bins.length + slot / 2}
               y={H - M.bottom + 16}
               textAnchor="middle"
               className="axis-label"

@@ -1,46 +1,43 @@
 import React, { useMemo } from 'react';
 import Section from './Section';
 import FigureTools from './FigureTools';
-import { fmtPct } from '../lib/data';
+import { fmtInt, fmtPct, PARTY } from '../lib/data';
 
 /**
- * Partisan River / Competitive Landscape
+ * Section 03a — Partisan River / Competitive Landscape.
  *
- * Shows districts as connected dots ordered by partisan lean, with:
- * - Y-axis: Democratic vote share (0-100%)
- * - X-axis: Districts ordered from most Democratic to most Republican
- * - Gradient zones: Transparent blue/red showing competitive range (45-55%)
- * - Connected line: Shows progression across districts
- * - Dot colors: Blue = Democratic win, Red = Republican win
+ * One dot per contested district, ordered left (most Democratic) to right
+ * (most Republican) by its two-party Democratic share, with the connecting
+ * line forming the "river". The shaded band is the competitive range
+ * (45–55% Democratic). Uncontested seats carry no two-party share and are
+ * counted separately below the chart instead of being plotted at 0% or 100%.
  */
-export default function PartisanRiver({
-  contests,
-  chamber,
-  year,
-  chamberLabel,
-}) {
-  // Get contests for this year/chamber
-  const contestKey = String(year);
-  const contestList = contests?.[chamber]?.[contestKey] || [];
+export default function PartisanRiver({ contests, chamber, year, chamberLabel }) {
+  const contestList = contests?.[chamber]?.[String(year)] || [];
 
-  // Extract and sort district-level data by Democratic vote share
-  const districts = useMemo(() => {
-    return contestList
-      .map((contest, idx) => ({
-        id: contest.id || `D${idx + 1}`,
-        demShare: contest.demPct || 0,
-        repShare: contest.repPct || 0,
-        demWon: (contest.demPct || 0) > (contest.repPct || 0),
-        margin: (contest.demPct || 0) - (contest.repPct || 0),
-      }))
-      .sort((a, b) => a.demShare - b.demShare); // Order left (Dem) to right (Rep)
+  const { districts, uncontested } = useMemo(() => {
+    const rows = contestList
+      .filter((c) => !c.uncontested && (c.d || 0) + (c.r || 0) > 0)
+      .map((c) => {
+        const twoParty = (c.d || 0) + (c.r || 0);
+        const demShare = (c.d || 0) / twoParty;
+        return {
+          id: c.district,
+          demShare,
+          demWon: demShare > 0.5,
+          winnerName: c.winnerName,
+          margin: c.marginShare,
+        };
+      })
+      .sort((a, b) => a.demShare - b.demShare);
+    return { districts: rows, uncontested: contestList.filter((c) => c.uncontested).length };
   }, [contestList]);
 
-  if (!districts.length) {
+  if (!contestList.length) {
     return (
       <Section
         id="partisan-river"
-        step="04"
+        step="03a"
         kicker="Competitive landscape"
         title="No district data available for this selection"
         lede="Select a year and chamber with district-level data to view the competitive landscape."
@@ -48,240 +45,168 @@ export default function PartisanRiver({
     );
   }
 
-  // SVG dimensions
-  const W = 960;
-  const H = 400;
-  const M = { top: 40, right: 40, bottom: 60, left: 60 };
+  // Full-width figure; the y domain is the honest 0–100%.
+  const W = 1160;
+  const H = 480;
+  const M = { top: 30, right: 30, bottom: 56, left: 58 };
   const plotW = W - M.left - M.right;
   const plotH = H - M.top - M.bottom;
 
-  // Scale functions
-  const xScale = (i) => M.left + (i / (Math.max(1, districts.length - 1))) * plotW;
-  const yScale = (demShare) => M.top + plotH - demShare * plotH;
+  const xScale = (i) => M.left + (i / Math.max(1, districts.length - 1)) * plotW;
+  const yScale = (share) => M.top + plotH - share * plotH;
 
-  // Competitive range (45-55% Democratic)
   const competitiveMin = 0.45;
   const competitiveMax = 0.55;
-  const competitiveMinY = yScale(competitiveMax); // Inverted Y-axis
-  const competitiveMaxY = yScale(competitiveMin);
+  const bandTop = yScale(competitiveMax);
+  const bandBottom = yScale(competitiveMin);
 
-  // Count winners
-  const demWins = districts.filter((d) => d.demWon).length;
+  const demWins = districts.filter((d) => d.emWon).length;
   const repWins = districts.length - demWins;
+  const inBand = districts.filter((d) => d.demShare >= competitiveMin && d.demShare <= competitiveMax).length;
+  const within5 = districts.filter((d) => (d.margin || 0) < 0.05).length;
 
   return (
     <Section
       id="partisan-river"
-      step="04"
+      step="03a"
       kicker="Competitive landscape"
       title={`How competitive are ${chamberLabel.toLowerCase()} districts?`}
-      lede={`Each dot represents a district, ordered left to right from most Democratic to most Republican based on their vote share. The shaded zones show the competitive range (45-55% Democratic), where districts could plausibly swing either way. The connecting line shows the progression across the partisan spectrum. Blue dots indicate Democratic winners; red dots indicate Republican winners.`}
+      lede={`Each dot is one of the ${districts.length} contested ${chamberLabel.toLowerCase()} seats in ${year}, ordered left to right from most Democratic to most Republican by two-party vote share. The shaded band is the competitive range (45–55% Democratic), where a district could plausibly swing either way; the connecting line is the partisan "river" across the chamber.`}
       aside={
-        <>
-          <dl>
-            <dt>Democratic wins</dt>
-            <dd>{demWins} districts</dd>
-            <dt>Republican wins</dt>
-            <dd>{repWins} districts</dd>
-            <dt>In competitive range</dt>
-            <dd>
-              {districts.filter((d) => d.demShare >= competitiveMin && d.demShare <= competitiveMax)
-                .length || '—'}
-            </dd>
+        <div className="aside-block">
+          <p className="aside-title">The landscape in numbers</p>
+          <dl className="index-list">
+            <div>
+              <dt>Democratic wins</dt>
+              <dd>
+                <strong>{demWins}</strong> districts
+              </dd>
+            </div>
+            <div>
+              <dt>Republican wins</dt>
+              <dd>
+                <strong>{repWins}</strong> districts
+              </dd>
+            </div>
+            <div>
+              <dt>Inside 45–55%</dt>
+              <dd>
+                <strong>{inBand || '—'}</strong> districts
+              </dd>
+            </div>
+            <div>
+              <dt>Decided by under 5 points</dt>
+              <dd>
+                <strong>{within5}</strong> districts
+              </dd>
+            </div>
+            <div>
+              <dt>Uncontested (not plotted)</dt>
+              <dd>
+                <strong>{uncontested}</strong> seats
+              </dd>
+            </div>
           </dl>
-        </>
+        </div>
       }
+      footer={`Source: fdga/contests.parquet, ${year} ${chamberLabel}. Two-party share = Democratic votes ÷ (Democratic + Republican votes). ${uncontested} uncontested seats have no opposing-party share and are excluded from the chart.`}
     >
       <figure className="chart">
         <FigureTools
           name={`partisan-river-${chamber}-${year}`}
           title="Competitive landscape"
-          subtitle={`${chamberLabel} districts ordered by Democratic vote share, ${year}`}
+          subtitle={`${chamberLabel} contested districts ordered by Democratic vote share, ${year}`}
         />
+        <figcaption>Every contested district, ordered by Democratic two-party share</figcaption>
+        <div className="chart-scroll">
+          <svg
+            viewBox={`0 0 ${W} ${H}`}
+            role="img"
+            aria-label={`River chart of ${districts.length} contested ${chamberLabel} districts in ${year}, ordered by Democratic two-party vote share, with the 45 to 55 percent competitive band shaded`}
+          >
+            {/* competitive band */}
+            <rect x={M.left} y={bandTop} width={plotW} height={Math.max(0, bandBottom - bandTop)} fill="#6440a4" opacity="0.08" />
+            <line x1={M.left} x2={M.left + plotW} y1={bandTop} y2={bandTop} className="gridline" />
+            <line x1={M.left} x2={M.left + plotW} y1={bandBottom} y2={bandBottom} className="gridline" />
+            <text x={M.left + plotW - 4} y={bandTop - 6} textAnchor="end" className="axis-label">
+              competitive range 45–55% D
+            </text>
 
-        <svg
-          viewBox={`0 0 ${W} ${H}`}
-          className="partisan-river-chart"
-          style={{ maxWidth: '100%', height: 'auto' }}
-        >
-          <defs>
-            <linearGradient id="demoGradient" x1="0%" y1="100%" x2="0%" y2="0%">
-              <stop offset="0%" stopColor="#4A90E2" stopOpacity="0" />
-              <stop offset="50%" stopColor="#4A90E2" stopOpacity="0.15" />
-              <stop offset="100%" stopColor="#4A90E2" stopOpacity="0.25" />
-            </linearGradient>
-            <linearGradient id="gopGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="#E24A4A" stopOpacity="0" />
-              <stop offset="50%" stopColor="#E24A4A" stopOpacity="0.15" />
-              <stop offset="100%" stopColor="#E24A4A" stopOpacity="0.25" />
-            </linearGradient>
-          </defs>
+            {/* horizontal gridlines + y ticks */}
+            {[0, 0.25, 0.5, 0.75, 1].map((t) => (
+              <g key={t}>
+                <line
+                  x1={M.left}
+                  x2={M.left + plotW}
+                  y1={yScale(t)}
+                  y2={yScale(t)}
+                  className={t === 0.5 ? 'zero-line' : 'gridline'}
+                />
+                <text x={M.left - 8} y={yScale(t) + 3.5} textAnchor="end" className={`axis-label${t === 0.5 ? ' is-current' : ''}`}>
+                  {Math.round(t * 100)}%
+                </text>
+              </g>
+            ))}
 
-          {/* Competitive range gradient backgrounds */}
-          <rect
-            x={M.left}
-            y={competitiveMinY}
-            width={plotW}
-            height={competitiveMaxY - competitiveMinY}
-            fill="url(#demoGradient)"
-            opacity="0.7"
-          />
-          <rect
-            x={M.left}
-            y={competitiveMaxY}
-            width={plotW}
-            height={competitiveMinY - competitiveMaxY}
-            fill="url(#gopGradient)"
-            opacity="0.7"
-          />
-
-          {/* 50% equilibrium line */}
-          <line
-            x1={M.left}
-            y1={yScale(0.5)}
-            x2={W - M.right}
-            y2={yScale(0.5)}
-            stroke="#999"
-            strokeDasharray="3,3"
-            strokeWidth="1"
-            opacity="0.4"
-          />
-
-          {/* Connected line through districts */}
-          <polyline
-            points={districts
-              .map((d, i) => `${xScale(i)},${yScale(d.demShare)}`)
-              .join(' ')}
-            fill="none"
-            stroke="#ccc"
-            strokeWidth="1.5"
-            opacity="0.5"
-          />
-
-          {/* District dots */}
-          {districts.map((district, i) => (
-            <g key={i}>
-              <circle
-                cx={xScale(i)}
-                cy={yScale(district.demShare)}
-                r="4.5"
-                fill={district.demWon ? '#4A90E2' : '#E24A4A'}
-                stroke="white"
-                strokeWidth="1.5"
-                opacity="0.85"
+            {/* the river */}
+            {districts.length > 1 && (
+              <polyline
+                points={districts.map((d, i) => `${xScale(i).toFixed(1)},${yScale(d.demShare).toFixed(1)}`).join(' ')}
+                fill="none"
+                stroke="#bdb7cf"
+                strokeWidth="1.6"
+                opacity="0.8"
               />
-              <title>{`${district.id}: ${fmtPct(district.demShare)}D, ${fmtPct(
-                district.repShare,
-              )}R (${district.demWon ? 'Democratic' : 'Republican'} win)`}</title>
-            </g>
-          ))}
+            )}
 
-          {/* Y-axis */}
-          <line
-            x1={M.left}
-            y1={M.top}
-            x2={M.left}
-            y2={H - M.bottom}
-            stroke="#333"
-            strokeWidth="1"
-          />
+            {/* district dots */}
+            {districts.map((d, i) => {
+              const inComp = d.demShare >= competitiveMin && d.demShare <= competitiveMax;
+              return (
+                <g key={d.id}>
+                  <title>
+                    {`${chamberLabel} district ${String(Number(d.id))}: ${fmtPct(d.demShare)} Democratic` +
+                      `${d.winnerName ? ` — ${d.winnerName}` : ''} (${d.demWon ? 'D' : 'R'} win, margin ${fmtPct(d.margin)})`}
+                  </title>
+                  <circle
+                    cx={xScale(i)}
+                    cy={yScale(d.demShare)}
+                    r={inComp ? 5 : 4}
+                    fill={d.demWon ? PARTY.D : PARTY.R}
+                    stroke={inComp ? '#7d3169' : '#ffffff'}
+                    strokeWidth={inComp ? 1.6 : 1.2}
+                    opacity="0.9"
+                  />
+                </g>
+              );
+            })}
 
-          {/* X-axis */}
-          <line
-            x1={M.left}
-            y1={H - M.bottom}
-            x2={W - M.right}
-            y2={H - M.bottom}
-            stroke="#333"
-            strokeWidth="1"
-          />
-
-          {/* Y-axis tick labels */}
-          <g fontSize="11" fill="#666" textAnchor="end">
-            <text x={M.left - 8} y={yScale(0.8) + 4}>
-              80%
+            {/* axes */}
+            <line x1={M.left} x2={M.left} y1={M.top} y2={M.top + plotH} className="axis-line" />
+            <line x1={M.left} x2={M.left + plotW} y1={M.top + plotH} y2={M.top + plotH} className="axis-line" />
+            <text x={M.left} y={H - 30} className="axis-label">
+              ← most Democratic
             </text>
-            <text x={M.left - 8} y={yScale(0.6) + 4}>
-              60%
+            <text x={M.left + plotW} y={H - 30} textAnchor="end" className="axis-label">
+              most Republican →
             </text>
-            <text x={M.left - 8} y={yScale(0.5) + 4} fontWeight="bold" fill="#333">
-              50%
+            <text x={M.left + plotW / 2} y={H - 12} textAnchor="middle" className="axis-label" fontSize="11">
+              {districts.length} contested districts, ordered by Democratic two-party share
             </text>
-            <text x={M.left - 8} y={yScale(0.4) + 4}>
-              40%
-            </text>
-            <text x={M.left - 8} y={yScale(0.2) + 4}>
-              20%
-            </text>
-          </g>
-
-          {/* Y-axis label */}
-          <text
-            x="20"
-            y={M.top + 15}
-            fontSize="13"
-            fontWeight="600"
-            fill="#333"
-            textAnchor="start"
-          >
-            Democratic Vote Share
-          </text>
-
-          {/* X-axis label */}
-          <text
-            x={W / 2}
-            y={H - 12}
-            fontSize="11"
-            fill="#666"
-            textAnchor="middle"
-          >
-            Districts ordered by Democratic vote share (left = most Dem, right = most GOP)
-          </text>
-        </svg>
-
-        {/* Legend */}
-        <div
-          style={{
-            display: 'flex',
-            gap: '24px',
-            marginTop: '16px',
-            fontSize: '12px',
-            color: '#666',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <div
-              style={{
-                width: '12px',
-                height: '12px',
-                backgroundColor: '#4A90E2',
-                borderRadius: '50%',
-              }}
-            />
-            Democratic winner
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <div
-              style={{
-                width: '12px',
-                height: '12px',
-                backgroundColor: '#E24A4A',
-                borderRadius: '50%',
-              }}
-            />
-            Republican winner
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <div
-              style={{
-                width: '30px',
-                height: '12px',
-                background: 'linear-gradient(90deg, transparent 0%, rgba(74, 144, 226, 0.2) 50%, transparent 100%)',
-                border: '1px solid #ddd',
-              }}
-            />
-            Competitive range (45–55%)
-          </div>
+          </svg>
+        </div>
+        <div className="legend">
+          <span className="legend-item">
+            <i style={{ background: PARTY.D, height: 9, width: 9, borderRadius: '50%' }} /> Democratic winner
+          </span>
+          <span className="legend-item">
+            <i style={{ background: PARTY.R, height: 9, width: 9, borderRadius: '50%' }} /> Republican winner
+          </span>
+          <span className="legend-item">
+            <i style={{ background: 'transparent', border: '1.6px solid #7d3169', height: 9, width: 9, borderRadius: '50%' }} />{' '}
+            inside the competitive range
+          </span>
+          <span className="legend-hint">{fmtInt(uncontested)} uncontested seats are not plotted</span>
         </div>
       </figure>
     </Section>

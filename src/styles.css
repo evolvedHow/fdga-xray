@@ -448,8 +448,10 @@ a:focus-visible {
   gap: 26px;
 }
 
+/* Charts always take the full card width; explanation asides sit below them
+   in a responsive block grid instead of a narrow right-hand column. */
 .story-body.with-aside {
-  grid-template-columns: minmax(0, 1.55fr) minmax(240px, 0.75fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .story-main {
@@ -457,11 +459,21 @@ a:focus-visible {
 }
 
 .story-aside {
-  border-left: 1px solid var(--line);
-  padding-left: 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(255px, 1fr));
+  gap: 16px 36px;
+  align-items: start;
+}
+
+.aside-block {
+  min-width: 0;
+}
+
+.aside-block > .aside-title:first-child,
+.aside-block > h3:first-child {
+  margin-top: 0;
 }
 
 .story-footer {
@@ -915,6 +927,18 @@ a:focus-visible {
 
 .map-figure {
   position: relative;
+}
+
+/* Maps keep a comfortable reading size instead of stretching the full card:
+   the viewBox is aspect-fitted to Georgia, then centred and capped. */
+.map-figure svg.county-map {
+  max-width: min(100%, 660px);
+  margin-inline: auto;
+}
+
+.precinct-figure svg {
+  max-width: min(100%, 780px);
+  margin-inline: auto;
 }
 
 .county-map {
@@ -1393,13 +1417,8 @@ a:focus-visible {
 /* ------------------------------------------------------------- responsive */
 
 @media (max-width: 1024px) {
-  .story-body.with-aside {
-    grid-template-columns: 1fr;
-  }
   .story-aside {
-    border-left: 0;
-    border-top: 1px solid var(--line);
-    padding: 16px 0 0;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   }
   .precinct-grid {
     grid-template-columns: 1fr;
@@ -1530,13 +1549,23 @@ a:focus-visible {
   }
 
   .story-card {
-    break-inside: avoid;
+    break-inside: auto;
     break-after: page;
     box-shadow: none;
     border: 1px solid #c9c4da;
     border-radius: 8px;
     padding: 16px;
     margin: 0 0 14px;
+  }
+
+  /* Keep whole figures / KPI blocks on one page even when a card must split. */
+  .story-card .chart,
+  .story-card .kpi-row,
+  .story-card .law-note,
+  .story-card .story-head,
+  .story-card .split-bars,
+  .story-card .story-aside {
+    break-inside: avoid;
   }
 
   .story-card:last-of-type {
@@ -1549,9 +1578,8 @@ a:focus-visible {
   }
 
   .story-aside {
-    border-left: 0;
-    border-top: 1px solid var(--line);
-    padding: 10px 0 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 24px;
   }
 
   .precinct-grid {

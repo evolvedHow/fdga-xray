@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef } from 'react';
+import React, { useMemo, useState } from 'react';
 import Section from './Section';
 import FigureTools from './FigureTools';
 import {
@@ -76,14 +76,6 @@ export default function PrecinctXray({
     return countyVotes[countyName?.toUpperCase()] || null;
   }, [countyVotes, countyName, selectedCounty]);
 
-  // Increased dimensions for 2,698 precincts visibility
-  const W = 950;
-  const H = 650;
-
-  // Static viewBox (zoom removed for better UX)
-  const precincViewBox = `0 0 ${W} ${H}`;
-  const precincRef = useRef(null);
-
   const bounds = useMemo(() => {
     if (!selectedCounty) return featureBounds(countyFeats);
     const pool = scoped;
@@ -94,7 +86,20 @@ export default function PrecinctXray({
     return [Math.min(...lon) - pad, Math.min(...lat) - pad, Math.max(...lon) + pad, Math.max(...lat) + pad];
   }, [scoped, selectedCounty, countyFeats]);
 
-  const project = useMemo(() => makeProjection(W - 30, H - 30, bounds), [bounds]);
+  // Aspect-fit the viewBox to the current bounds (statewide or one county) so
+  // the dot map fills the frame; the projection keeps Georgia's true shape.
+  const { W, H } = useMemo(() => {
+    const [x0, y0, x1, y1] = bounds;
+    const kx = Math.cos((((y0 + y1) / 2) * Math.PI) / 180);
+    const aspect = (y1 - y0) / Math.max(1e-9, (x1 - x0) * kx);
+    const w = 780;
+    const h = Math.round((w - 30) * aspect) + 30;
+    return { W: w, H: Math.min(960, Math.max(380, h)) };
+  }, [bounds]);
+
+  const precincViewBox = `0 0 ${W} ${H}`;
+
+  const project = useMemo(() => makeProjection(W - 30, H - 30, bounds), [W, H, bounds]);
 
   const countyPaths = useMemo(
     () =>
@@ -146,80 +151,84 @@ export default function PrecinctXray({
       footer="Source: vtd/vtd_composite.parquet + boundaries/reference/precinct_scored.geojson (2020 Census VTDs). Precinct lean is the selected election's two-party Democratic share."
       aside={
         <>
-          <div className="breadcrumb" aria-label="Drill-down location">
-            <button type="button" onClick={() => onSelectCounty(null)} className={!selectedCounty ? 'is-current' : ''}>
-              Georgia
-            </button>
-            {countyName && (
-              <>
-                <span aria-hidden="true">›</span>
-                <button type="button" className="is-current" onClick={() => onSelectPrecinct(null)}>
-                  {countyName}
-                </button>
-              </>
-            )}
-            {selected && (
-              <>
-                <span aria-hidden="true">›</span>
-                <span className="crumb-current">{selected.name || selected.geoid}</span>
-              </>
-            )}
+          <div className="aside-block">
+            <div className="breadcrumb" aria-label="Drill-down location">
+              <button type="button" onClick={() => onSelectCounty(null)} className={!selectedCounty ? 'is-current' : ''}>
+                Georgia
+              </button>
+              {countyName && (
+                <>
+                  <span aria-hidden="true">›</span>
+                  <button type="button" className="is-current" onClick={() => onSelectPrecinct(null)}>
+                    {countyName}
+                  </button>
+                </>
+              )}
+              {selected && (
+                <>
+                  <span aria-hidden="true">›</span>
+                  <span className="crumb-current">{selected.name || selected.geoid}</span>
+                </>
+              )}
+            </div>
+
+            <label className="field">
+              <span>County</span>
+              <select
+                value={selectedCounty || ''}
+                onChange={(e) => {
+                  onSelectPrecinct(null);
+                  onSelectCounty(e.target.value || null);
+                }}
+              >
+                <option value="">All Georgia ({precincts.length} precincts)</option>
+                {[...countyFeats]
+                  .sort((a, b) => a.properties.name.localeCompare(b.properties.name))
+                  .map((f) => (
+                    <option key={f.properties.fips} value={f.properties.fips}>
+                      {f.properties.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+
+            <label className="field">
+              <span>Find precinct</span>
+              <input
+                type="search"
+                placeholder="e.g. Atlanta, 12B, Midway"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </label>
           </div>
 
-          <label className="field">
-            <span>County</span>
-            <select
-              value={selectedCounty || ''}
-              onChange={(e) => {
-                onSelectPrecinct(null);
-                onSelectCounty(e.target.value || null);
-              }}
-            >
-              <option value="">All Georgia ({precincts.length} precincts)</option>
-              {[...countyFeats]
-                .sort((a, b) => a.properties.name.localeCompare(b.properties.name))
-                .map((f) => (
-                  <option key={f.properties.fips} value={f.properties.fips}>
-                    {f.properties.name}
-                  </option>
-                ))}
-            </select>
-          </label>
+          <div className="aside-block">
+            <dl className="mini-stats">
+              <div>
+                <dt>Precincts</dt>
+                <dd>{fmtInt(scoped.length)}</dd>
+              </div>
+              <div>
+                <dt>Votes ({electionLabel})</dt>
+                <dd>{fmtInt(countyStats.turnout)}</dd>
+              </div>
+              <div>
+                <dt>Weighted D share</dt>
+                <dd>{fmtPct(countyStats.lean)}</dd>
+              </div>
+              <div>
+                <dt>Black share of VAP</dt>
+                <dd>{fmtPct(countyStats.bvapShare)}</dd>
+              </div>
+            </dl>
 
-          <label className="field">
-            <span>Find precinct</span>
-            <input
-              type="search"
-              placeholder="e.g. Atlanta, 12B, Midway"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </label>
-
-          <dl className="mini-stats">
-            <div>
-              <dt>Precincts</dt>
-              <dd>{fmtInt(scoped.length)}</dd>
-            </div>
-            <div>
-              <dt>Votes ({electionLabel})</dt>
-              <dd>{fmtInt(countyStats.turnout)}</dd>
-            </div>
-            <div>
-              <dt>Weighted D share</dt>
-              <dd>{fmtPct(countyStats.lean)}</dd>
-            </div>
-            <div>
-              <dt>Black share of VAP</dt>
-              <dd>{fmtPct(countyStats.bvapShare)}</dd>
-            </div>
-          </dl>
-
-          {voteShare && (
-            <p className="micro-note">
-              {countyName} County voted {fmtPct(voteShare.pctD)} Democratic in {chamberLabel} {year} races.
-            </p>
-          )}
+            {voteShare && (
+              <p className="micro-note">
+                {countyName} County voted {fmtPct(voteShare.pctD)} Democratic in {chamberLabel} {year} races.
+              </p>
+            )}
+          </div>
         </>
       }
     >
@@ -232,13 +241,11 @@ export default function PrecinctXray({
         />
         <svg
           viewBox={precincViewBox}
-          ref={precincRef}
-          style={{ cursor: 'grab', userSelect: 'none' }}
           role="img"
           aria-label={
             selectedCounty
-              ? `Precinct dot map for ${countyName} County. Use mouse wheel to zoom, drag to pan.`
-              : 'Statewide precinct dot map of Georgia. Use mouse wheel to zoom, drag to pan.'
+              ? `Precinct dot map for ${countyName} County, coloured by ${electionLabel} two-party Democratic share; dot size shows votes cast.`
+              : `Statewide precinct dot map of Georgia, coloured by ${electionLabel} two-party Democratic share; dot size shows votes cast.`
           }
         >
           {countyPaths.map((c) => (
@@ -383,7 +390,7 @@ export default function PrecinctXray({
                     className="ghost-button"
                     onClick={() => onSelectCounty(selected.countyFips)}
                   >
-                    Zoom to {selected.county} County
+                    Open {selected.county} County
                   </button>
                 )}
                 <button type="button" className="ghost-button" onClick={() => onSelectPrecinct(null)}>

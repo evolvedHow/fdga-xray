@@ -1,7 +1,7 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo } from 'react';
 import Section from './Section';
 import FigureTools from './FigureTools';
-import { fmtInt, fmtPct, fmtPts, PARTY } from '../lib/data';
+import { fmtInt, fmtPct, PARTY } from '../lib/data';
 
 /**
  * Competitive zone, as FDGA and the Princeton Gerrymandering Project define it:
@@ -31,13 +31,17 @@ const PREFIX = { state_house: 'HD', state_senate: 'SD', us_house: 'CD' };
  * shares derived from the same VTD vote file, so the difference between the two
  * counts is the map and nothing else — no turnout change, no candidate quality,
  * no estimation.
+ *
+ * Figure 1 is a full-width scatter: x = a district's Democratic share under the
+ * old lines, y = its share under the new ones. The diagonal is "no change"; a
+ * stem's length is the shift the map produced. Flips and the largest movers are
+ * labelled with greedy collision avoidance.
  */
 export default function MapEffect({ effect, sources, chamberLabel, year }) {
-  const districts = useMemo(() => {
-    if (!effect) return [];
-    // Sorted by gain: Democrats' largest gains at the top, losses at the bottom.
-    return [...effect.districts].sort((a, b) => b.shiftPts - a.shiftPts);
-  }, [effect]);
+  const districts = useMemo(
+    () => (effect ? [...effect.districts].sort((a, b) => b.shiftPts - a.shiftPts) : []),
+    [effect],
+  );
 
   const p24 = useMemo(
     () => effect?.signals.find((s) => s.key === 'p24') || effect?.signals[0],
@@ -74,27 +78,76 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
 
   const moved = disp.districts || [];
   const heavy = moved.filter((d) => d.displacedPct >= 0.3).length;
-  const worst = moved.slice(0, 6);
+  const worst = moved.slice(0, 4);
 
   // ---------------------------------------------------------------- figure 1
-  // Increased dimensions for readability: now 100% width, 6px per district
-  const W = 980;
-  const rowH = 6;
-  const M = { top: 24, right: 140, bottom: 26, left: 12 };
+  // Full-width scatter: old-lines share (x) vs new-lines share (y).
+  const W = 1160;
+  const H = 620;
+  const M = { top: 40, right: 30, bottom: 56, left: 66 };
   const plotW = W - M.left - M.right;
-  const H = M.top + districts.length * rowH + M.bottom;
-  const domain = [0.2, 0.85];
-  const x = (v) => {
-    const t = (Math.min(domain[1], Math.max(domain[0], v)) - domain[0]) / (domain[1] - domain[0]);
-    return M.left + t * plotW;
+  const plotH = H - M.top - M.bottom;
+
+  const allPct = districts.flatMap((d) => [d.priorPct, d.currentPct]);
+  const lo = Math.max(0, Math.floor(Math.min(...allPct) * 20) / 20 - 0.025);
+  const hi = Math.min(1, Math.ceil(Math.max(...allPct) * 20) / 20 + 0.025);
+  const x = (v) => M.left + ((Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo)) * plotW;
+  const y = (v) => M.top + plotH - ((Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo)) * plotH;
+
+  const flipSet = new Set(
+    districts.filter((d) => (d.priorPct > 0.5) !== (d.currentPct > 0.5)).map((d) => String(d.district)),
+  );
+  const remedySet = new Set(remedyIds.map(String));
+  const tickSet = new Set([0.25, 0.5, 0.75].filter((t) => t > lo && t < hi));
+  if (lo < 0.5 && hi > 0.5) tickSet.add(0.5);
+  const ticks = Array.from(tickSet).sort((a, b) => a - b);
+
+  // Labels: flips first, then remedy districts, then the biggest movers.
+  const labelCandidates = [
+    ...districts.filter((d) => flipSet.has(String(d.district))),
+    ...districts.filter((d) => !flipSet.has(String(d.district)) && remedySet.has(String(d.district))),
+    ...districts.filter(
+      (d) => !flipSet.has(String(d.district)) && !remedySet.has(String(d.district)) && Math.abs(d.shiftPts) >= 10,
+    ),
+  ].sort((a, b) => Math.abs(b.shiftPts) - Math.abs(a.shiftPts));
+
+  const placedBoxes = [];
+  const placeLabel = (dotX, dotY, text) => {
+    const w = text.length * 5.6 + 6;
+    const h = 12;
+    const cands = [
+      [dotX + 9, dotY + 3.5],
+      [dotX + 9, dotY - 7],
+      [dotX - w - 7, dotY + 3.5],
+      [dotX - w - 7, dotY - 7],
+      [dotX + 12, dotY + 15],
+      [dotX + 12, dotY - 18],
+      [dotX - w - 10, dotY + 15],
+    ];
+    for (const [lx, ly] of cands) {
+      const box = { x0: lx - 2, y0: ly - h + 3, x1: lx + w + 2, y1: ly + 4 };
+      if (box.x0 < M.left - 4 || box.x1 > W - M.right + 4 || box.y0 < 6 || box.y1 > H - M.bottom + 14) continue;
+      const hit = placedBoxes.some((b) => !(box.x1 < b.x0 || box.x0 > b.x1 || box.y1 < b.y0 || box.y0 > b.y1));
+      if (hit) continue;
+      placedBoxes.push(box);
+      return { lx, ly, anchor: lx < dotX ? 'end' : 'start' };
+    }
+    return null;
   };
 
+  const labels = [];
+  for (const d of labelCandidates) {
+    const text = `${dc} ${d.district}`;
+    const at = placeLabel(x(d.currentPct), y(d.currentPct), text);
+    if (at) labels.push({ d, text, ...at });
+  }
+
   // ---------------------------------------------------------------- figure 2
-  const CW = 980;
-  const CH = 140;
-  const CM = { top: 20, right: 74, bottom: 34, left: 66 };
+  const CW = 1160;
+  const CH = 150;
+  const CM = { top: 22, right: 96, bottom: 36, left: 92 };
   const cPlotW = CW - CM.left - CM.right;
-  const barH = 24;
+  const barH = 26;
   const buckets = MARGIN_BUCKETS.map((b) => ({
     ...b,
     prior: effect.districts.filter((d) => b.test(Math.abs(d.priorPct - 0.5) * 100)).length,
@@ -102,24 +155,22 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
   }));
   const rowsFor = [
     { key: 'prior', label: effect.prior.label, y: CM.top },
-    { key: 'current', label: effect.current.label, y: CM.top + 46 },
+    { key: 'current', label: effect.current.label, y: CM.top + 48 },
   ];
 
   // ---------------------------------------------------------------- figure 3
-  const DW = 980;
-  const DH = 280;
-  const DM = { top: 40, right: 14, bottom: 30, left: 12 };
+  const DW = 1160;
+  const DH = 300;
+  const DM = { top: 52, right: 16, bottom: 32, left: 14 };
   const dPlotW = DW - DM.left - DM.right;
   const dPlotH = DH - DM.top - DM.bottom;
   const slot = dPlotW / Math.max(1, moved.length);
   const maxMove = Math.max(0.05, ...moved.map((d) => d.displacedPct || 0));
 
-  // Static viewBox (zoom removed for better UX)
-  const dumbViewBox = `0 0 ${W} ${H}`;
-  const dumbRef = useRef(null);
-
   const isHistoricalData = year !== 2024;
-  const yearNote = isHistoricalData ? ` (Note: this comparison uses 2024 presidential vote data, shown for context even though you're viewing ${year} results)` : '';
+  const yearNote = isHistoricalData
+    ? ` (Note: this comparison uses 2024 presidential vote data, shown for context even though you're viewing ${year} results)`
+    : '';
 
   return (
     <Section
@@ -133,7 +184,7 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
       }
       lede={`How the 2024 redistricting affected ${chamberLabel.toLowerCase()} by comparing the ${effect.prior.label} to the ${effect.current.label}, using the 2024 presidential vote. The seat count moved from ${p24.priorSeatsD} to ${p24.currentSeatsD} (${seatWord}), while ${fmtInt(disp.people)} people — ${fmtPct(disp.pct)} of the state — landed in a different district.${yearNote}`}
       aside={
-        <>
+        <div className="aside-block">
           <p className="aside-title">What the swap did not change</p>
           <dl className="index-list">
             <div>
@@ -169,18 +220,17 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
             <div>
               <dt>Median district lean</dt>
               <dd>
-                {(prior.medianLean * 100).toFixed(1)} →{' '}
-                <strong>{(current.medianLean * 100).toFixed(1)}% D</strong>
+                {(prior.medianLean * 100).toFixed(1)} → <strong>{(current.medianLean * 100).toFixed(1)}% D</strong>
               </dd>
             </div>
           </dl>
           <p className="micro-note">
-            The median district sits {Math.abs((0.5 - current.medianLean) * 100).toFixed(1)} points
-            from a tie ({current.medianLean < 0.5 ? 'toward Republicans' : 'toward Democrats'}) while
-            the average district sits at {(current.meanLean * 100).toFixed(1)}% D. When the middle
-            district and the average district disagree, one party is packed into fewer districts.
+            The median district sits {Math.abs((0.5 - current.medianLean) * 100).toFixed(1)} points from a tie (
+            {current.medianLean < 0.5 ? 'toward Republicans' : 'toward Democrats'}) while the average district sits
+            at {(current.meanLean * 100).toFixed(1)}% D. When the middle district and the average district disagree,
+            one party is packed into fewer districts.
           </p>
-        </>
+        </div>
       }
       footer={`Method: both plan files carry district-level shares computed from one VTD vote file, so the two counts differ only by the lines. Displacement is area-weighted population reassignment; the "arithmetic minimum" is the population that equalising district sizes requires (${fmtInt(disp.arithmeticMinimum)} people, ${fmtPct(disp.arithmeticMinimumPct, 2)}). Competitive zone = 46.5–53.5% two-party Democratic share, the threshold used in FDGA's 2022 evaluation with the Princeton Gerrymandering Project.`}
     >
@@ -219,102 +269,123 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
         <FigureTools
           name={`map-swap-${effect.chamber}`}
           title={`The 2024 redistricting effect on ${effect.label}: each district's 2024 presidential vote under both maps`}
-          subtitle={`Every district, sorted by how far the 2024 presidential vote shifted between the ${effect.prior.label.toLowerCase()} and the ${effect.current.label.toLowerCase()}${isHistoricalData ? ' (shown for context with ' + year + ' results)' : ''}`}
+          subtitle={`Every district: Democratic share under the ${effect.prior.label.toLowerCase()} (x) against the ${effect.current.label.toLowerCase()} (y)${isHistoricalData ? ' (shown for context with ' + year + ' results)' : ''}`}
         />
-        <figcaption>
-          The 2024 presidential vote in every district, under the old lines and the new ones
-        </figcaption>
-        <svg
-          viewBox={dumbViewBox}
-          ref={dumbRef}
-          style={{ cursor: 'grab', userSelect: 'none' }}
-          role="img"
-          aria-label={`Dumbbell chart: 2024 Democratic share in all ${effect.seats} districts under the 2021-23 lines and the 2024 lines. Use mouse wheel to zoom, drag to pan.`}
-        >
-          <rect
-            x={x(BAND[0])}
-            y={M.top - 6}
-            width={x(BAND[1]) - x(BAND[0])}
-            height={H - M.top - M.bottom + 10}
-            fill="#6440a4"
-            opacity="0.07"
-          />
-
-          {[0.25, 0.5, 0.75].map((t) => (
-            <g key={t}>
-              <line
-                x1={x(t)}
-                x2={x(t)}
-                y1={M.top - 6}
-                y2={H - M.bottom + 4}
-                className={t === 0.5 ? 'zero-line' : 'gridline'}
-              />
-              <text x={x(t)} y={M.top - 10} textAnchor="middle" className="axis-label">
-                {Math.round(t * 100)}% D
-              </text>
-            </g>
-          ))}
-
-          {districts.map((d, i) => {
-            const y = M.top + i * rowH + rowH / 2;
-            const up = d.shiftPts > 0;
-            const big = Math.abs(d.shiftPts) >= 10;
-            const flip = (d.priorPct > 0.5) !== (d.currentPct > 0.5);
-            return (
-              <g key={d.district} opacity={big ? 1 : 0.55}>
-                <line
-                  x1={x(d.priorPct)}
-                  x2={x(d.currentPct)}
-                  y1={y}
-                  y2={y}
-                  stroke={up ? PARTY.D : PARTY.R}
-                  strokeWidth={flip ? 1.6 : 1}
-                  opacity={flip ? 0.9 : 0.45}
-                />
-                <circle cx={x(d.priorPct)} cy={y} r={big ? 1.9 : 1.5} fill="#a9a3bf" />
-                <circle
-                  cx={x(d.currentPct)}
-                  cy={y}
-                  r={big ? 2.2 : 1.6}
-                  fill={d.currentPct > 0.5 ? PARTY.D : PARTY.R}
-                />
-                {big && (
-                  <text
-                    x={W - M.right + 8}
-                    y={y + 3}
-                    className="axis-label is-current"
-                    fontSize="9.5"
-                    fill={up ? PARTY.D : PARTY.R}
-                  >
-                    {dc} {d.district}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-
-          <line
-            x1={M.left}
-            x2={W - M.right}
-            y1={H - M.bottom}
-            y2={H - M.bottom}
-            className="axis-line"
-          />
-          <text
-            x={(x(BAND[0]) + x(BAND[1])) / 2}
-            y={H - M.bottom + 16}
-            textAnchor="middle"
-            className="axis-label"
+        <figcaption>The 2024 presidential vote in every district, under the old lines and the new ones</figcaption>
+        <div className="chart-scroll">
+          <svg
+            viewBox={`0 0 ${W} ${H}`}
+            role="img"
+            aria-label={`Scatter plot: 2024 Democratic share in all ${effect.seats} districts under the ${effect.prior.label} on the x-axis and the ${effect.current.label} on the y-axis. Points on the dashed diagonal did not change; stems show the shift the new map produced.`}
           >
-            competitive zone
-          </text>
-        </svg>
+            {/* competitive zone: vertical band = old lines, horizontal band = new lines */}
+            <rect x={x(BAND[0])} y={M.top} width={x(BAND[1]) - x(BAND[0])} height={plotH} fill="#6440a4" opacity="0.05" />
+            <rect x={M.left} y={y(BAND[1])} width={plotW} height={y(BAND[0]) - y(BAND[1])} fill="#6440a4" opacity="0.05" />
+
+            {/* gridlines + 50% crosshair */}
+            {ticks.map((t) => (
+              <g key={`gx-${t}`}>
+                <line x1={x(t)} x2={x(t)} y1={M.top} y2={M.top + plotH} className={t === 0.5 ? 'zero-line' : 'gridline'} />
+                <line x1={M.left} x2={M.left + plotW} y1={y(t)} y2={y(t)} className={t === 0.5 ? 'zero-line' : 'gridline'} />
+              </g>
+            ))}
+
+            {/* no-change diagonal */}
+            <line
+              x1={x(lo)}
+              y1={y(lo)}
+              x2={x(hi)}
+              y2={y(hi)}
+              stroke="#8b87a3"
+              strokeWidth="1.2"
+              strokeDasharray="5 4"
+              opacity="0.8"
+            />
+            <text x={x(hi) - 6} y={y(hi) + 16} textAnchor="end" className="axis-label" fill="#726d89">
+              no change
+            </text>
+
+            {/* districts: grey dot on the diagonal (old lines), coloured dot at the new share */}
+            {districts.map((d) => {
+              const sx = x(d.priorPct);
+              const sy0 = y(d.priorPct);
+              const sy1 = y(d.currentPct);
+              const up = d.shiftPts > 0;
+              const big = Math.abs(d.shiftPts) >= 10;
+              const flip = flipSet.has(String(d.district));
+              return (
+                <g key={d.district} opacity={big || flip ? 1 : 0.6}>
+                  <title>
+                    {`${dc} ${d.district} — ${effect.prior.label}: ${(d.priorPct * 100).toFixed(1)}% D → ` +
+                      `${effect.current.label}: ${(d.currentPct * 100).toFixed(1)}% D (${pts(d.shiftPts)})`}
+                  </title>
+                  <line x1={sx} x2={sx} y1={sy0} y2={sy1} stroke={up ? PARTY.D : PARTY.R} strokeWidth={big || flip ? 1.5 : 1} opacity="0.55" />
+                  <circle cx={sx} cy={sy0} r="1.9" fill="#a9a3bf" />
+                  <circle
+                    cx={sx}
+                    cy={sy1}
+                    r={big || flip ? 3.6 : 2.5}
+                    fill={d.currentPct > 0.5 ? PARTY.D : PARTY.R}
+                    stroke={flip ? '#7d3169' : 'none'}
+                    strokeWidth={flip ? 1.5 : 0}
+                  />
+                </g>
+              );
+            })}
+
+            {/* labels for flips, remedy districts and the biggest movers */}
+            {labels.map(({ d, text, lx, ly, anchor }) => {
+              const dotX = x(d.currentPct);
+              const dotY = y(d.currentPct);
+              const up = d.shiftPts > 0;
+              return (
+                <g key={`lbl-${d.district}`}>
+                  <line x1={dotX} y1={dotY} x2={anchor === 'start' ? lx - 2 : lx + 2} y2={ly - 3.5} stroke="#d7d3e3" strokeWidth="0.7" />
+                  <text x={lx} y={ly} textAnchor={anchor} className="axis-label is-current" fontSize="10" fill={up ? PARTY.D : PARTY.R}>
+                    {text}
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* axes */}
+            <line x1={M.left} x2={M.left + plotW} y1={M.top + plotH} y2={M.top + plotH} className="axis-line" />
+            <line x1={M.left} x2={M.left} y1={M.top} y2={M.top + plotH} className="axis-line" />
+            {ticks.map((t) => (
+              <g key={`t-${t}`}>
+                <text x={x(t)} y={M.top + plotH + 18} textAnchor="middle" className={`axis-label${t === 0.5 ? ' is-current' : ''}`}>
+                  {Math.round(t * 100)}% D
+                </text>
+                <text x={M.left - 8} y={y(t) + 3.5} textAnchor="end" className={`axis-label${t === 0.5 ? ' is-current' : ''}`}>
+                  {Math.round(t * 100)}%
+                </text>
+              </g>
+            ))}
+            <text x={M.left + plotW / 2} y={H - 12} textAnchor="middle" className="axis-label" fontSize="11">
+              {effect.prior.label}: Democratic two-party share
+            </text>
+            <text
+              x={16}
+              y={M.top + plotH / 2}
+              textAnchor="middle"
+              className="axis-label"
+              fontSize="11"
+              transform={`rotate(-90 16 ${M.top + plotH / 2})`}
+            >
+              {effect.current.label}: Democratic two-party share
+            </text>
+            <text x={(x(BAND[0]) + x(BAND[1])) / 2} y={M.top - 10} textAnchor="middle" className="axis-label">
+              competitive zone
+            </text>
+          </svg>
+        </div>
       </figure>
 
       <p className="micro-note">
-        Grey dot: the same district under the {effect.prior.label}. Coloured dot: under the{' '}
-        {effect.current.label}. A line crossing the shaded band is a district that left the
-        competitive zone without a single voter changing their mind.
+        Grey dot: where the district sat under the {effect.prior.label} (on the diagonal). Coloured dot: where it
+        lands under the {effect.current.label}; the stem between them is the shift the map produced, with no voter
+        changing their mind. A plum ring marks the {p24.flips.length} districts that changed party control; a stem
+        crossing the shaded band is a district that left the competitive zone.
       </p>
 
       <figure className="chart">
@@ -334,10 +405,11 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
             return (
               <g key={row.key}>
                 <text
-                  x={CM.left - 8}
+                  x={CM.left - 10}
                   y={row.y + barH / 2 + 4}
                   textAnchor="end"
                   className={`axis-label ${row.key === 'current' ? 'is-current' : ''}`}
+                  fontSize="11"
                 >
                   {row.label}
                 </text>
@@ -349,10 +421,10 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
                   return (
                     <g key={b.key}>
                       <rect x={bx} y={row.y} width={Math.max(0, w)} height={barH} fill={b.fill} />
-                      {w > 26 && (
+                      {w > 30 && (
                         <text
                           x={bx + w / 2}
-                          y={row.y + barH / 2 + 3.5}
+                          y={row.y + barH / 2 + 4}
                           textAnchor="middle"
                           className="bar-value"
                           fill={b.key === 'close' ? '#ffffff' : '#3a3550'}
@@ -363,37 +435,23 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
                     </g>
                   );
                 })}
-                <text
-                  x={CM.left + cPlotW + 8}
-                  y={row.y + barH / 2 + 4}
-                  className="axis-label"
-                >
+                <text x={CM.left + cPlotW + 10} y={row.y + barH / 2 + 4} className="axis-label" fontSize="11">
                   {buckets[3][row.key]} seats 20+
                 </text>
               </g>
             );
           })}
-          {buckets.map((b, i) => {
-            const priorOffset = buckets
-              .slice(0, i)
-              .reduce((s, prev) => s + (prev.prior / effect.seats) * cPlotW, 0);
-            return (
-              <g key={`legend-${b.key}`}>
-                <rect
-                  x={CM.left + priorOffset}
-                  y={CH - 22}
-                  width={9}
-                  height={9}
-                  rx="2"
-                  fill={b.fill}
-                />
-                <text x={CM.left + priorOffset + 13} y={CH - 14} className="axis-label">
-                  {b.label}
-                </text>
-              </g>
-            );
-          })}
-          <text x={CW - 6} y={CH - 14} textAnchor="end" className="axis-label">
+          {/* Legend items at fixed spacing: proportional offsets collide when
+              a chamber has few seats (e.g. the 56-seat Senate). */}
+          {buckets.map((b, i) => (
+            <g key={`legend-${b.key}`}>
+              <rect x={CM.left + i * 150} y={CH - 24} width="10" height="10" rx="2" fill={b.fill} />
+              <text x={CM.left + i * 150 + 14} y={CH - 15} className="axis-label" fontSize="11">
+                {b.label}
+              </text>
+            </g>
+          ))}
+          <text x={CW - 6} y={CH - 15} textAnchor="end" className="axis-label" fontSize="11">
             margin in points
           </text>
         </svg>
@@ -420,7 +478,7 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
                 y2={DM.top + dPlotH * t}
                 className="gridline"
               />
-              <text x={DM.left} y={DM.top + dPlotH * t - 4} className="axis-label">
+              <text x={DW - DM.right} y={DM.top + dPlotH * t - 5} textAnchor="end" className="axis-label">
                 {Math.round((1 - t) * maxMove * 100)}%
               </text>
             </g>
@@ -433,66 +491,41 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
             const requiredH = Math.max(0.6, ((d.requiredPct || 0) / maxMove) * dPlotH);
             return (
               <g key={d.district}>
+                <title>
+                  {`${dc} ${d.district}: ${(pct * 100).toFixed(1)}% of residents moved to a different district ` +
+                    `(equality required ${((d.requiredPct || 0) * 100).toFixed(1)}%)`}
+                </title>
                 <rect
                   x={bx}
                   y={DM.top + dPlotH - h}
-                  width={Math.max(1, slot - 0.6)}
+                  width={Math.max(1, slot - 0.8)}
                   height={Math.max(0.6, h)}
                   fill={pct >= 0.3 ? '#7d3169' : '#b9a7c9'}
                 />
-                <rect
-                  x={bx}
-                  y={DM.top + dPlotH - requiredH}
-                  width={Math.max(1, slot - 0.6)}
-                  height={requiredH}
-                  fill="#1c1a2b"
-                  opacity="0.55"
-                />
+                <rect x={bx} y={DM.top + dPlotH - requiredH} width={Math.max(1, slot - 0.8)} height={requiredH} fill="#1c1a2b" opacity="0.55" />
               </g>
             );
           })}
 
-          <line
-            x1={DM.left}
-            x2={DW - DM.right}
-            y1={DM.top + dPlotH}
-            y2={DM.top + dPlotH}
-            className="axis-line"
-          />
-          {worst.slice(0, 6).map((d, i) => {
-            const barIdx = moved.indexOf(d);
-            const barX = DM.left + barIdx * slot + slot / 2;
-            const barTopY = DM.top + dPlotH - (d.displacedPct / maxMove) * dPlotH;
-            // Alternate label position: above and below to avoid overlap
-            const isAbove = i % 2 === 0;
-            const labelY = isAbove ? barTopY - 14 : barTopY + 12;
+          <line x1={DM.left} x2={DW - DM.right} y1={DM.top + dPlotH} y2={DM.top + dPlotH} className="axis-line" />
+
+          {/* The four largest bars sit within a few points of each other, so
+              per-bar text always collides: mark them with triangles instead
+              and list them in one annotation line above the plot. */}
+          {worst.map((d, i) => {
+            const barX = DM.left + i * slot + slot / 2;
+            const barTopY = DM.top + dPlotH - ((d.displacedPct || 0) / maxMove) * dPlotH;
             return (
-              <g key={`lbl-${d.district}`}>
-                {isAbove && (
-                  <line
-                    x1={barX}
-                    x2={barX}
-                    y1={barTopY}
-                    y2={barTopY - 10}
-                    stroke="#d7d3e3"
-                    strokeWidth="0.5"
-                    opacity="0.6"
-                  />
-                )}
-                <text
-                  x={barX}
-                  y={labelY}
-                  textAnchor="middle"
-                  className="axis-label"
-                  fontSize="9"
-                  fontWeight="600"
-                  fill="#4c4863"
-                >
-                  {d.district}
-                </text>
-              </g>
+              <polygon
+                key={`mark-${d.district}`}
+                points={`${barX - 3.4},${barTopY - 6} ${barX + 3.4},${barTopY - 6} ${barX},${barTopY - 1}`}
+                fill="#7d3169"
+              />
             );
           })}
+          <text x={DM.left} y={18} className="axis-label" fontSize="11" fontWeight="600" fill="#4c4863">
+            ▴ Four largest: {worst.map((d) => `${dc} ${d.district} (${Math.round((d.displacedPct || 0) * 100)}%)`).join(' · ')}
+          </text>
           <text x={DW - DM.right} y={DH - 10} textAnchor="end" className="axis-label">
             {moved.length} districts · dark bar above 30% moved
           </text>
@@ -500,10 +533,10 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
       </figure>
 
       <p className="micro-note">
-        {heavy} districts had at least 30% of their residents reassigned; the four largest are
-        labelled. The black tick on each bar is the share that had to move to equalise population —
-        under 1% almost everywhere. Districts keep their numbers between plans, so “moved” means
-        residents of district {worst[0]?.district} were handed to a different member.
+        {heavy} districts had at least 30% of their residents reassigned; the four largest are marked ▴ and listed
+        above the chart. The black tick on each bar is the share that had to move to equalise population — under 1%
+        almost everywhere. Districts keep their numbers between plans, so “moved” means residents of district{' '}
+        {worst[0]?.district} were handed to a different member.
       </p>
 
       <div className="law-note">
@@ -511,23 +544,21 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
           <strong>There is no legal limit on how many voters a map may move.</strong>{' '}
           {minimumIsTrivial ? (
             <>
-              Equalising district populations required moving {fmtInt(disp.arithmeticMinimum)}{' '}
-              people, so the {fmtInt(disp.people)} reassigned here are not explained by population
-              equality at all.
+              Equalising district populations required moving {fmtInt(disp.arithmeticMinimum)} people, so the{' '}
+              {fmtInt(disp.people)} reassigned here are not explained by population equality at all.
             </>
           ) : (
             <>
-              The {fmtInt(disp.people)} people above are {disp.multiple?.toFixed(0)}× the{' '}
-              {fmtInt(disp.arithmeticMinimum)} ({fmtPct(disp.arithmeticMinimumPct, 2)}) that
-              equalising district populations forces any map to move.
+              The {fmtInt(disp.people)} people above are {disp.multiple?.toFixed(0)}× the {fmtInt(disp.arithmeticMinimum)}{' '}
+              ({fmtPct(disp.arithmeticMinimumPct, 2)}) that equalising district populations forces any map to move.
             </>
           )}{' '}
-          That is arithmetic, not a rule: exceeding it is not, by itself, unlawful, and this story
-          does not claim that it is.
+          That is arithmetic, not a rule: exceeding it is not, by itself, unlawful, and this story does not claim that
+          it is.
         </p>
         <p>
-          <strong>What the court did order:</strong> on 26 October 2023 a federal court held that
-          the 2021 House and Senate plans violated{' '}
+          <strong>What the court did order:</strong> on 26 October 2023 a federal court held that the 2021 House and
+          Senate plans violated{' '}
           {source('vra-section-2') ? (
             <a href={source('vra-section-2').url} target="_blank" rel="noreferrer">
               Section 2 of the Voting Rights Act
@@ -543,15 +574,14 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
           ) : (
             'case record'
           )}
-          ). Measured by voting-age population, the 2024 map created exactly{' '}
-          {remedyIds.length === 1 ? 'one' : remedyIds.length}: {dc}{' '}
-          {remedyIds.join(`, ${dc} `)} — and no district lost Black-majority status.
+          ). Measured by voting-age population, the 2024 map created exactly {remedyIds.length === 1 ? 'one' : remedyIds.length}:{' '}
+          {dc} {remedyIds.join(`, ${dc} `)} — and no district lost Black-majority status.
         </p>
         <p>
-          <strong>The same map moved three Democratic districts to the Republican column</strong> —
-          {dc} {lostByD.map((f) => f.district).join(`, ${dc} `)} — and four Republican districts to the
-          Democrats. The court then approved the plans, holding that drawing with “an eye toward
-          securing partisan advantage” does “not alone violate Section 2” (
+          <strong>The same map moved three Democratic districts to the Republican column</strong> —{dc}{' '}
+          {lostByD.map((f) => f.district).join(`, ${dc} `)} — and four Republican districts to the Democrats. The court
+          then approved the plans, holding that drawing with “an eye toward securing partisan advantage” does “not
+          alone violate Section 2” (
           {source('alpha-phi-alpha-order-2023') ? (
             <a href={source('alpha-phi-alpha-order-2023').url} target="_blank" rel="noreferrer">
               28 December 2023 order
@@ -573,8 +603,8 @@ export default function MapEffect({ effect, sources, chamberLabel, year }) {
 
       {year !== 2024 && (
         <p className="micro-note">
-          This comparison is fixed to 2024, the only election fought on two different sets of
-          lines. The year filter above does not change it.
+          This comparison is fixed to 2024, the only election fought on two different sets of lines. The year filter
+          above does not change it.
         </p>
       )}
     </Section>

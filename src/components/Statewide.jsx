@@ -15,9 +15,10 @@ const SERIES = [
  */
 export default function Statewide({ statewide, chamberRow, chamberLabel, year, onYear }) {
   const [hover, setHover] = useState(null);
-  const W = 640;
-  const H = 260;
-  const M = { top: 18, right: 18, bottom: 28, left: 44 };
+  // Full card width; viewBox ≈ rendered size so fonts stay crisp (~1:1).
+  const W = 1060;
+  const H = 400;
+  const M = { top: 24, right: 24, bottom: 32, left: 52 };
 
   const years = useMemo(
     () => Array.from(new Set(statewide.map((d) => d.year))).sort((a, b) => a - b),

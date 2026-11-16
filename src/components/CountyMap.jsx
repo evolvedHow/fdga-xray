@@ -28,11 +28,20 @@ export default function CountyMap({
   const [hover, setHover] = useState(null);
   const [pos, setPos] = useState({ x: 0, y: 0 });
 
-  const W = 720;
-  const H = 460;
   const feats = counties.features;
 
-  const project = useMemo(() => makeProjection(W - 16, H - 16, featureBounds(feats)), [feats]);
+  // Aspect-fit the viewBox to the state's projected shape so the map fills the
+  // frame instead of floating inside a fixed landscape box.
+  const bounds = useMemo(() => featureBounds(feats), [feats]);
+  const { W, H } = useMemo(() => {
+    const [x0, y0, x1, y1] = bounds;
+    const kx = Math.cos((((y0 + y1) / 2) * Math.PI) / 180);
+    const aspect = (y1 - y0) / Math.max(1e-9, (x1 - x0) * kx); // projected height / width
+    const w = 680;
+    return { W: w, H: Math.round((w - 16) * aspect) + 16 };
+  }, [bounds]);
+
+  const project = useMemo(() => makeProjection(W - 16, H - 16, bounds), [W, H, bounds]);
 
   const shapes = useMemo(
     () =>
@@ -82,34 +91,38 @@ export default function CountyMap({
       footer="Source: fdga/facts.parquet aggregated by county; fallback lean is the VTD composite. Click a county to open its precincts."
       aside={
         <>
-          <h3 className="aside-title">Most Democratic</h3>
-          <ul className="rank-list">
-            {ranked.slice(0, 5).map((r) => (
-              <li key={r.fips}>
-                <button type="button" onClick={() => onSelectCounty(r.fips)}>
-                  <span className="rank-name">{r.name}</span>
-                  <span className="rank-bar">
-                    <i style={{ width: `${Math.round(r.pctD * 100)}%`, background: PARTY.D }} />
-                  </span>
-                  <span className="rank-val">{fmtPct(r.pctD)}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          <h3 className="aside-title">Most Republican</h3>
-          <ul className="rank-list">
-            {ranked.slice(-5).reverse().map((r) => (
-              <li key={r.fips}>
-                <button type="button" onClick={() => onSelectCounty(r.fips)}>
-                  <span className="rank-name">{r.name}</span>
-                  <span className="rank-bar">
-                    <i style={{ width: `${Math.round((1 - r.pctD) * 100)}%`, background: PARTY.R }} />
-                  </span>
-                  <span className="rank-val">{fmtPct(1 - r.pctD)}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="aside-block">
+            <h3 className="aside-title">Most Democratic</h3>
+            <ul className="rank-list">
+              {ranked.slice(0, 5).map((r) => (
+                <li key={r.fips}>
+                  <button type="button" onClick={() => onSelectCounty(r.fips)}>
+                    <span className="rank-name">{r.name}</span>
+                    <span className="rank-bar">
+                      <i style={{ width: `${Math.round(r.pctD * 100)}%`, background: PARTY.D }} />
+                    </span>
+                    <span className="rank-val">{fmtPct(r.pctD)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="aside-block">
+            <h3 className="aside-title">Most Republican</h3>
+            <ul className="rank-list">
+              {ranked.slice(-5).reverse().map((r) => (
+                <li key={r.fips}>
+                  <button type="button" onClick={() => onSelectCounty(r.fips)}>
+                    <span className="rank-name">{r.name}</span>
+                    <span className="rank-bar">
+                      <i style={{ width: `${Math.round((1 - r.pctD) * 100)}%`, background: PARTY.R }} />
+                    </span>
+                    <span className="rank-val">{fmtPct(1 - r.pctD)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         </>
       }
     >

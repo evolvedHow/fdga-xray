@@ -77,18 +77,19 @@ export default function Benchmark({ ensemble, chamberLabel }) {
   }
 
   // ------------------------------------------------------------ percentile strip
-  const W = 700;
-  const rowH = 30;
-  const M = { top: 34, right: 56, bottom: 38, left: 156 };
+  // Full card width; text sizes render ~1:1 at desktop widths.
+  const W = 1160;
+  const rowH = 32;
+  const M = { top: 36, right: 64, bottom: 40, left: 176 };
   const plotW = W - M.left - M.right;
   const H = M.top + metrics.length * rowH + M.bottom;
   const x = (pct) => M.left + (Math.max(0, Math.min(100, pct)) / 100) * plotW;
   const baseline = H - M.bottom;
 
   // ------------------------------------------------------- competitiveness histogram
-  const HIST_W = 640;
-  const HIST_H = 216;
-  const HM = { top: 34, right: 22, bottom: 38, left: 52 };
+  const HIST_W = 1160;
+  const HIST_H = 250;
+  const HM = { top: 38, right: 26, bottom: 42, left: 56 };
   const histW = HIST_W - HM.left - HM.right;
   const histH = HIST_H - HM.top - HM.bottom;
   const hist = comp?.hist;
@@ -122,48 +123,48 @@ export default function Benchmark({ ensemble, chamberLabel }) {
       lede={`FDGA scored this map against ${fmtInt(run.draws)} alternative maps drawn by a computer that was never shown party registration, past results, or race. Inside the shaded band, geography alone could have produced the result. Outside it, fewer than 5 in 100 neutral maps land where this one does.`}
       aside={
         <>
-          <p className="aside-title">Benchmark setup</p>
-          <dl className="index-list">
-            <div>
-              <dt>Neutral maps compared</dt>
-              <dd>{fmtInt(run.draws)}</dd>
-            </div>
-            <div>
-              <dt>Drawing method</dt>
-              <dd>{run.algorithm || 'ReCom'}</dd>
-            </div>
-            <div>
-              <dt>Election basis</dt>
-              <dd>{run.election || '2018–2024 composite'}</dd>
-            </div>
-            <div>
-              <dt>Tests outside the band</dt>
-              <dd>
-                {outside.length} of {metrics.length}
-              </dd>
-            </div>
-          </dl>
+          <div className="aside-block">
+            <p className="aside-title">Benchmark setup</p>
+            <dl className="index-list">
+              <div>
+                <dt>Neutral maps compared</dt>
+                <dd>{fmtInt(run.draws)}</dd>
+              </div>
+              <div>
+                <dt>Drawing method</dt>
+                <dd>{run.algorithm || 'ReCom'}</dd>
+              </div>
+              <div>
+                <dt>Election basis</dt>
+                <dd>{run.election || '2018–2024 composite'}</dd>
+              </div>
+              <div>
+                <dt>Tests outside the band</dt>
+                <dd>
+                  {outside.length} of {metrics.length}
+                </dd>
+              </div>
+            </dl>
+          </div>
 
-          <p className="aside-title" style={{ marginTop: 16 }}>
-            Competition, in the scorecard&rsquo;s words
-          </p>
-          <blockquote className="bench-quote">
-            “{(comp?.takeaway || '')
-              .replace('district(s)', Number(comp?.enacted) === 1 ? 'district' : 'districts')
-              .replace('fewer than 100% of neutral maps', 'fewer than any neutral map')}”
-          </blockquote>
-          {comp && (
-            <p className="micro-note">
-              In plain terms: {Math.round((1 - (comp.pctRank || 0)) * 100)}% of neutral maps keep
-              more seats competitive than this one.
-            </p>
-          )}
+          <div className="aside-block">
+            <p className="aside-title">Competition, in the scorecard&rsquo;s words</p>
+            <blockquote className="bench-quote">
+              “{(comp?.takeaway || '')
+                .replace('district(s)', Number(comp?.enacted) === 1 ? 'district' : 'districts')
+                .replace('fewer than 100% of neutral maps', 'fewer than any neutral map')}”
+            </blockquote>
+            {comp && (
+              <p className="micro-note">
+                In plain terms: {Math.round((1 - (comp.pctRank || 0)) * 100)}% of neutral maps keep
+                more seats competitive than this one.
+              </p>
+            )}
+          </div>
 
           {ensemble.benchmarks?.muni_splits && (
-            <>
-              <p className="aside-title" style={{ marginTop: 16 }}>
-                One measure where the map does well
-              </p>
+            <div className="aside-block">
+              <p className="aside-title">One measure where the map does well</p>
               <p className="micro-note">
                 {ensemble.benchmarks.muni_splits.enacted} cities and towns are split across
                 districts — the {ordinal(ensemble.benchmarks.muni_splits.pctRank)} percentile of
@@ -175,26 +176,26 @@ export default function Benchmark({ ensemble, chamberLabel }) {
                 % of them). Keeping communities whole and drawing competitive districts can pull
                 in opposite directions; a fair map has to weigh both.
               </p>
-            </>
+            </div>
           )}
 
-          <p className="aside-title" style={{ marginTop: 16 }}>
-            Grades
-          </p>
-          <ul className="grade-list">
-            {gradeList.map((m) => (
-              <li key={m.key}>
-                <span>{m.label}</span>
-                <b
-                  className="grade-chip"
-                  style={{ background: GRADE_FILL[m.grade] || '#8b6fc4' }}
-                  title={`Scorecard grade: ${m.grade}`}
-                >
-                  {m.grade}
-                </b>
-              </li>
-            ))}
-          </ul>
+          <div className="aside-block">
+            <p className="aside-title">Grades</p>
+            <ul className="grade-list">
+              {gradeList.map((m) => (
+                <li key={m.key}>
+                  <span>{m.label}</span>
+                  <b
+                    className="grade-chip"
+                    style={{ background: GRADE_FILL[m.grade] || '#8b6fc4' }}
+                    title={`Scorecard grade: ${m.grade}`}
+                  >
+                    {m.grade}
+                  </b>
+                </li>
+              ))}
+            </ul>
+          </div>
         </>
       }
       footer={`Source: FDGA neutral-ensemble scorecards (${run.algorithm || 'ReCom'}, ${fmtInt(run.draws)} maps, ${run.districts} districts, ${run.date || '2026'}). Percentiles are the share of neutral maps scoring below the enacted map; the band spans the 5th to 95th percentile. Composite basis: ${run.election || '2018–2024'}.`}

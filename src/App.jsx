@@ -270,6 +270,7 @@ export default function App() {
           ['seats', '02', 'Votes vs seats'],
           ['county-swing', '02a', 'County swings'],
           ['mapswap', '03', 'The map swap'],
+          ['partisan-river', '03a', 'Landscape'],
           ['benchmark', '04', 'The benchmark'],
           ['counties', '05', 'County map'],
           ['competition', '06', 'Competition'],

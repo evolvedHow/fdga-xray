@@ -15,9 +15,10 @@ export default function SeatsVsVotes({ rows, year, chamberLabel }) {
     [rows],
   );
 
-  const W = 640;
-  const H = 180;
-  const M = { top: 16, right: 10, bottom: 26, left: 10 };
+  // Full card width; viewBox ≈ rendered size so fonts stay crisp (~1:1).
+  const W = 1060;
+  const H = 210;
+  const M = { top: 18, right: 12, bottom: 28, left: 12 };
   const barH = 26;
   const zero = H / 2 + 4;
   const maxGap = Math.max(0.12, ...trend.map((r) => Math.abs(r.gapR || 0)));
@@ -91,7 +92,9 @@ export default function SeatsVsVotes({ rows, year, chamberLabel }) {
           <line x1={M.left} x2={W - M.right} y1={zero} y2={zero} className="zero-line" />
           {trend.map((r, i) => {
             const g = r.gapR || 0;
-            const h = (Math.abs(g) / maxGap) * (H / 2 - 28);
+            // Keep headroom below the bars so the selected year's value label
+            // never collides with the year tick row.
+            const h = (Math.abs(g) / maxGap) * (H / 2 - 46);
             const cx = M.left + slot * i + slot / 2;
             return (
               <g key={r.year}>
